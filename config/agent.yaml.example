@@ -1,0 +1,38 @@
+# Agent Configuration Example
+# Copy to agent.yaml and customize
+
+# vLLM Server Configuration
+vllm:
+  base_url: "http://localhost:8000"
+  model: "glm-air-4.5"
+  temperature: 0.7
+  max_tokens: 2048
+  timeout: 120
+
+# Context Configuration
+contexts:
+  directory: "config/contexts"
+  default: "irc"
+
+# Tool Configuration
+tools:
+  enabled:
+    - irc
+    - python
+    - shell
+    - files
+
+# IRC Tool Configuration (if using terrarium-irc)
+irc:
+  server: "irc.steelbea.me"
+  port: 6667
+  nick: "terrarium"
+  channels:
+    - "#terrarium"
+    - "#test"
+  database: "../terrarium-irc/data/irc_logs.db"
+
+# Logging
+logging:
+  level: "INFO"
+  file: "agent.log"

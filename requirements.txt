@@ -1,0 +1,21 @@
+# LLM Integration
+anthropic>=0.40.0          # For Claude API integration (if needed)
+openai>=1.50.0             # OpenAI-compatible API client (for vLLM)
+
+# Data handling
+pydantic>=2.0.0            # Data validation
+pyyaml>=6.0                # Config file parsing
+
+# Async support
+aiohttp>=3.9.0             # Async HTTP client
+asyncio-mqtt>=0.16.0       # Async MQTT if needed
+
+# Tool dependencies
+# IRC tool uses terrarium-irc (local package)
+-e ../terrarium-irc        # Editable install of terrarium-irc
+
+# Development
+pytest>=7.4.0              # Testing
+pytest-asyncio>=0.21.0     # Async testing
+black>=23.0.0              # Code formatting
+mypy>=1.5.0                # Type checking
