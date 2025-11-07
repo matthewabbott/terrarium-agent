@@ -59,23 +59,58 @@ docker logs -f vllm-server
 
 ## Running the Agent
 
-### Simple Chat Interface
+### Option 1: HTTP API Server (Recommended for External Integration)
+
+Start the agent server on port 8080:
+
+```bash
+source venv/bin/activate
+python server.py
+```
+
+The server provides an OpenAI-compatible HTTP API that external applications (IRC bots, web apps, games) can call. See `AGENT_API.md` for full API documentation.
+
+**Test the server:**
+```bash
+# Health check
+curl http://localhost:8080/health
+
+# Simple generation
+curl -X POST http://localhost:8080/v1/generate \
+  -H "Content-Type: application/json" \
+  -d '{"prompt": "What is 2+2?"}'
+```
+
+**Use the Python client:**
+```python
+from client_library import AgentClient
+
+client = AgentClient("http://localhost:8080")
+response = client.generate("What is Python?")
+print(response)
+```
+
+### Option 2: Simple Chat Interface
+
+Interactive CLI for chatting with the agent:
 
 ```bash
 source venv/bin/activate
 python chat.py
 ```
 
-Interactive CLI for chatting with the agent. Type `/help` for commands.
+Supports persistent sessions and conversation history. Type `/help` for commands.
 
-### Full Agent Runtime (with Tools & Harnesses)
+### Option 3: Full Agent Runtime (with Tools & Harnesses)
+
+Interactive prompt with full tool access:
 
 ```bash
 source venv/bin/activate
 python main.py
 ```
 
-Interactive prompt where you can:
+Features:
 - Chat with the agent
 - Switch contexts with `/context <name>`
 - List contexts with `/list`

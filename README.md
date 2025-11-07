@@ -8,11 +8,13 @@ A flexible agent runtime with sandboxed execution, vLLM integration, and extensi
 
 ### Components
 
+- **HTTP API Server**: OpenAI-compatible REST API for external integration (port 8080)
 - **Agent Runtime**: Core loop with context management and tool orchestration
-- **vLLM Integration**: GLM-Air-4.5 (4-bit quantized) via vLLM server
+- **vLLM Integration**: GLM-4.5-Air-AWQ-4bit via vLLM Docker container (port 8000)
 - **Tool System**: Pluggable tools with clean interfaces
 - **Context Swapping**: Different personas/contexts per domain (IRC ambassador, coder, etc.)
-- **Sandbox**: Safe execution environment for code and commands
+- **Session Management**: Persistent conversation storage with multi-context support
+- **Harness System**: Structured game/task environments (chess, CTF, coding challenges)
 
 ## Project Structure
 
@@ -60,14 +62,24 @@ pip install -r requirements.txt
 # 3. Start vLLM server in Docker (separate terminal)
 ./start_vllm_docker.sh
 
-# 4. Run agent
+# 4. Choose how to run the agent:
+
+# Option A: HTTP API Server (recommended for external integration)
 source venv/bin/activate
-python chat.py  # Interactive chat
-# or
-python main.py  # Full agent runtime with tools
+python server.py  # Starts on http://localhost:8080
+
+# Option B: Interactive chat with persistent sessions
+source venv/bin/activate
+python chat.py
+
+# Option C: Full agent runtime with tools and harnesses
+source venv/bin/activate
+python main.py
 ```
 
-**See [DOCKER_SETUP.md](DOCKER_SETUP.md) for detailed Docker setup and troubleshooting.**
+**See [QUICKSTART.md](QUICKSTART.md) for detailed instructions.**
+**See [AGENT_API.md](AGENT_API.md) for HTTP API documentation.**
+**See [DOCKER_SETUP.md](DOCKER_SETUP.md) for Docker setup and troubleshooting.**
 
 ## Configuration
 
