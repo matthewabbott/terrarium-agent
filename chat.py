@@ -4,9 +4,10 @@
 import asyncio
 import sys
 from pathlib import Path
-from typing import List, Dict
+from typing import List, Dict, Optional
 
 from llm.vllm_client import VLLMClient
+from agent.multi_context_manager import MultiContextManager
 
 
 class ChatSession:
@@ -48,7 +49,9 @@ class ChatInterface:
         self,
         vllm_url: str = "http://localhost:8000",
         model: str = None,
-        system_prompt: str = None
+        system_prompt: str = None,
+        session_id: Optional[str] = None,
+        storage_dir: Optional[Path] = None
     ):
         """
         Initialize chat interface.
@@ -57,11 +60,22 @@ class ChatInterface:
             vllm_url: vLLM server URL
             model: Model name (will auto-detect if not provided)
             system_prompt: System prompt for the conversation
+            session_id: Optional session ID for persistent conversations
+            storage_dir: Directory for session storage (default: ./sessions)
         """
         self.vllm_url = vllm_url
         self.model = model
+        self.system_prompt = system_prompt
+        self.session_id = session_id
+        self.storage_dir = storage_dir
         self.client = None
-        self.session = ChatSession(system_prompt)
+        self.context_manager = None
+
+        # Use in-memory session if no session_id provided (backwards compatible)
+        if not session_id:
+            self.session = ChatSession(system_prompt)
+        else:
+            self.session = None  # Will use context_manager instead
 
     async def initialize(self):
         """Initialize vLLM client and check server health."""
@@ -101,6 +115,16 @@ class ChatInterface:
         # Update client with detected model
         self.client.model = self.model
 
+        # Initialize context manager if using persistent sessions
+        if self.session_id:
+            self.context_manager = MultiContextManager(
+                vllm_client=self.client,
+                storage_dir=self.storage_dir
+            )
+            # Full context ID format: cli:{session_id}
+            self.context_id = f"cli:{self.session_id}"
+            print(f"✓ Using persistent session: {self.context_id}")
+
     async def shutdown(self):
         """Cleanup resources."""
         if self.client:
@@ -116,20 +140,31 @@ class ChatInterface:
         Returns:
             Assistant's response
         """
-        # Add user message to history
-        self.session.add_message("user", user_message)
-
-        # Get full conversation history (includes system prompt)
-        messages = self.session.get_history()
-
-        # Use chat method with full history for context-aware responses
         try:
-            response = await self.client.chat(messages=messages)
+            # Use context manager if available (persistent sessions)
+            if self.context_manager:
+                response = await self.context_manager.process_with_context(
+                    context_id=self.context_id,
+                    user_message=user_message,
+                    system_prompt=self.system_prompt
+                )
+                return response
 
-            # Add response to history
-            self.session.add_message("assistant", response)
+            # Otherwise use in-memory session (backwards compatible)
+            else:
+                # Add user message to history
+                self.session.add_message("user", user_message)
 
-            return response
+                # Get full conversation history (includes system prompt)
+                messages = self.session.get_history()
+
+                # Use chat method with full history for context-aware responses
+                response = await self.client.chat(messages=messages)
+
+                # Add response to history
+                self.session.add_message("assistant", response)
+
+                return response
 
         except Exception as e:
             error_msg = f"Error generating response: {e}"
@@ -143,6 +178,8 @@ class ChatInterface:
         print("  /clear    - Clear conversation history")
         print("  /history  - Show conversation history")
         print("  /system   - Change system prompt")
+        if self.context_manager:
+            print("  /stats    - Show session statistics")
         print("  /quit     - Exit chat (or Ctrl+C)")
         print()
 
@@ -152,7 +189,15 @@ class ChatInterface:
         print("Conversation History")
         print("="*60)
 
-        messages = self.session.get_history()
+        # Get messages from appropriate source
+        if self.context_manager:
+            session = self.context_manager.get_or_create_session(
+                self.context_id,
+                self.system_prompt
+            )
+            messages = session.get_history()
+        else:
+            messages = self.session.get_history()
 
         for msg in messages:
             role = msg["role"]
@@ -205,10 +250,18 @@ class ChatInterface:
                     elif command in ['help', 'h']:
                         self.print_help()
                     elif command == 'clear':
-                        self.session.clear()
+                        if self.context_manager:
+                            self.context_manager.clear_context(self.context_id)
+                        else:
+                            self.session.clear()
                         print("✓ Conversation history cleared")
                     elif command == 'history':
                         self.print_history()
+                    elif command == 'stats' and self.context_manager:
+                        stats = self.context_manager.get_stats(self.context_id)
+                        print("\nSession Statistics:")
+                        for key, value in stats.items():
+                            print(f"  {key}: {value}")
                     elif command == 'system':
                         new_prompt = input("Enter new system prompt: ").strip()
                         if new_prompt:
@@ -256,6 +309,17 @@ async def main():
         default=None,
         help="System prompt (default: helpful assistant)"
     )
+    parser.add_argument(
+        "--session-id",
+        default=None,
+        help="Session ID for persistent conversations (e.g., 'main', 'project_x')"
+    )
+    parser.add_argument(
+        "--storage-dir",
+        default=None,
+        type=Path,
+        help="Directory for session storage (default: ./sessions)"
+    )
 
     args = parser.parse_args()
 
@@ -263,7 +327,9 @@ async def main():
     chat = ChatInterface(
         vllm_url=args.url,
         model=args.model,
-        system_prompt=args.system
+        system_prompt=args.system,
+        session_id=args.session_id,
+        storage_dir=args.storage_dir
     )
 
     await chat.run()

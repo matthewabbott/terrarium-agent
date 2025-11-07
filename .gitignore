@@ -54,3 +54,10 @@ Thumbs.db
 
 # Models (too large for git)
 models/
+
+# Sessions (persistent conversation state - user data)
+sessions/
+sessions_test/
+
+# Tests
+test_*.py
