@@ -289,6 +289,136 @@ class ChatInterface:
             print("Chat session ended.")
 
 
+def list_sessions(storage_dir: Path = Path("sessions")):
+    """List all available sessions."""
+    from agent.multi_context_manager import MultiContextManager
+    from llm.vllm_client import VLLMClient
+
+    # Create temporary client (just for listing, won't connect)
+    client = VLLMClient()
+    manager = MultiContextManager(client, storage_dir=storage_dir)
+
+    all_contexts = manager.list_all_contexts()
+
+    if not all_contexts:
+        print("No sessions found.")
+        return
+
+    print("\nAvailable Sessions:")
+    print("=" * 60)
+
+    for context_type, sessions in all_contexts.items():
+        print(f"\n{context_type.upper()}:")
+        for session_info in sessions:
+            session_id = session_info["session_id"]
+            date = session_info["date"]
+            print(f"  • {date}/{session_id}")
+
+    print("\n" + "=" * 60)
+
+
+def delete_session(session_id: str, storage_dir: Path = Path("sessions")):
+    """Delete a specific session."""
+    from agent.multi_context_manager import MultiContextManager
+    from llm.vllm_client import VLLMClient
+
+    # Parse session_id format (can be "id" or "date/id")
+    if "/" in session_id:
+        parts = session_id.split("/")
+        if len(parts) == 2:
+            # Format: date/id - use for CLI context
+            context_id = f"cli:{parts[1]}"
+        else:
+            print(f"Invalid session ID format: {session_id}")
+            return
+    else:
+        # Just ID - assume CLI context
+        context_id = f"cli:{session_id}"
+
+    # Confirm deletion
+    confirm = input(f"Delete session '{session_id}'? (yes/no): ").strip().lower()
+    if confirm not in ["yes", "y"]:
+        print("Deletion cancelled.")
+        return
+
+    # Create manager and delete
+    client = VLLMClient()
+    manager = MultiContextManager(client, storage_dir=storage_dir)
+
+    try:
+        manager.delete_context(context_id)
+        print(f"✓ Deleted session: {session_id}")
+    except Exception as e:
+        print(f"❌ Error deleting session: {e}")
+
+
+def pick_session(storage_dir: Path = Path("sessions")) -> Optional[str]:
+    """
+    Interactive session picker.
+
+    Returns:
+        Session ID if selected, None if creating new, 'quit' to exit
+    """
+    from agent.multi_context_manager import MultiContextManager
+    from llm.vllm_client import VLLMClient
+
+    # Create manager to list sessions
+    client = VLLMClient()
+    manager = MultiContextManager(client, storage_dir=storage_dir)
+
+    all_contexts = manager.list_all_contexts()
+    cli_sessions = all_contexts.get("cli", [])
+
+    if not cli_sessions:
+        print("\nNo existing CLI sessions found.")
+        new_id = input("Enter a name for your new session (or 'quit'): ").strip()
+        return new_id if new_id.lower() != 'quit' else 'quit'
+
+    # Show recent sessions
+    print("\nRecent CLI sessions:")
+    print("=" * 60)
+
+    for i, session_info in enumerate(cli_sessions[:10], 1):  # Show max 10
+        session_id = session_info["session_id"]
+        date = session_info["date"]
+        # Try to load stats for more info
+        try:
+            context_id = f"cli:{session_id}"
+            stats = manager.get_stats(context_id)
+            msg_count = stats.get("message_count", "?")
+            print(f"{i}. {date}/{session_id} ({msg_count} messages)")
+        except:
+            print(f"{i}. {date}/{session_id}")
+
+    print("\n" + "=" * 60)
+
+    # Get user choice
+    while True:
+        choice = input("\nEnter number, session ID, or 'new' to create: ").strip()
+
+        if choice.lower() in ['quit', 'q', 'exit']:
+            return 'quit'
+
+        if choice.lower() == 'new':
+            new_id = input("Enter a name for your new session: ").strip()
+            return new_id if new_id else None
+
+        # Try as number
+        if choice.isdigit():
+            idx = int(choice) - 1
+            if 0 <= idx < len(cli_sessions[:10]):
+                return cli_sessions[idx]["session_id"]
+            else:
+                print(f"Invalid number. Choose 1-{min(10, len(cli_sessions))}")
+                continue
+
+        # Try as session ID
+        if any(s["session_id"] == choice for s in cli_sessions):
+            return choice
+
+        print(f"Session '{choice}' not found. Try again.")
+
+
 async def main():
     """Main entry point."""
     import argparse
@@ -320,8 +450,43 @@ async def main():
         type=Path,
         help="Directory for session storage (default: ./sessions)"
     )
+    parser.add_argument(
+        "--list-sessions",
+        action="store_true",
+        help="List all available sessions and exit"
+    )
+    parser.add_argument(
+        "--delete-session",
+        metavar="SESSION_ID",
+        help="Delete a session and exit"
+    )
 
     args = parser.parse_args()
+
+    storage_dir = args.storage_dir or Path("sessions")
+
+    # Handle list-sessions
+    if args.list_sessions:
+        list_sessions(storage_dir)
+        return
+
+    # Handle delete-session
+    if args.delete_session:
+        delete_session(args.delete_session, storage_dir)
+        return
+
+    # Interactive session picker if no session-id provided
+    session_id = args.session_id
+    if not session_id:
+        print("\nWelcome to Terrarium Agent!")
+        session_id = pick_session(storage_dir)
+
+        if session_id == 'quit':
+            print("Goodbye!")
+            return
+
+        if session_id:
+            print(f"\nUsing session: {session_id}\n")
 
     # Create and run chat interface
     chat = ChatInterface(

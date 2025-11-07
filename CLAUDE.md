@@ -55,6 +55,26 @@ python chat.py
 python main.py
 ```
 
+## Session Storage & Multi-Context Management
+
+Terrarium Agent supports **persistent conversation contexts** for multiple simultaneous endpoints (IRC, games, web, CLI).
+
+**Storage structure:** `sessions/{type}/{date}/{id}.json` (date-based organization)
+
+**Quick reference:**
+- Full docs: See `SESSION_STORAGE.md`
+- Interactive picker: `python chat.py` (no args)
+- List sessions: `python chat.py --list-sessions`
+- Use session: `python chat.py --session-id main`
+
+**Multi-context architecture:**
+- Sequential context swapping (one active at a time)
+- Fast switching via in-memory cache + vLLM APC
+- Each context isolated (IRC/#python, game:pokemon, cli:main)
+- Auto-save after each interaction
+
+**For endpoint developers:** Use `MultiContextManager.process_with_context(context_id, message)` to handle requests with persistent state.
+
 ## Architecture
 
 ### Core Components

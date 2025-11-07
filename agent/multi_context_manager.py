@@ -178,12 +178,22 @@ class MultiContextManager:
         """Get list of context IDs currently in memory cache."""
         return list(self._cache.keys())
 
-    def list_all_contexts(self) -> Dict[str, List[str]]:
+    def list_all_contexts(self) -> Dict[str, List[Dict]]:
         """
-        List all persisted contexts from disk.
+        List all persisted contexts from disk (date-based organization).
 
         Returns:
-            Dict mapping context_type to list of session_ids
+            Dict mapping context_type to list of session info dicts.
+            Each session dict contains: session_id, date, file_path
+
+        Example:
+            {
+                "cli": [
+                    {"session_id": "xyz123", "date": "2025-11-06", "path": "sessions/cli/2025-11-06/xyz123.json"},
+                    {"session_id": "main", "date": "2025-11-05", "path": "sessions/cli/2025-11-05/main.json"}
+                ],
+                "irc": [...]
+            }
         """
         contexts = {}
 
@@ -192,17 +202,37 @@ class MultiContextManager:
 
         # Iterate through context type directories
         for type_dir in self.storage_dir.iterdir():
-            if type_dir.is_dir():
-                context_type = type_dir.name
-                sessions = []
+            if not type_dir.is_dir():
+                continue
 
-                # Find all JSON files in this type directory
-                for session_file in type_dir.glob("*.json"):
-                    session_id = session_file.stem  # Filename without .json
-                    sessions.append(session_id)
+            context_type = type_dir.name
+            sessions = []
 
-                if sessions:
-                    contexts[context_type] = sorted(sessions)
+            # Iterate through date subdirectories (date-based organization)
+            for date_dir in type_dir.iterdir():
+                if not date_dir.is_dir():
+                    # Handle legacy flat structure (sessions without dates)
+                    if date_dir.suffix == ".json":
+                        sessions.append({
+                            "session_id": date_dir.stem,
+                            "date": "unknown",
+                            "path": str(date_dir)
+                        })
+                    continue
+
+                # Find all JSON files in this date directory
+                for session_file in date_dir.glob("*.json"):
+                    session_id = session_file.stem
+                    sessions.append({
+                        "session_id": session_id,
+                        "date": date_dir.name,
+                        "path": str(session_file)
+                    })
+
+            if sessions:
+                # Sort by date (newest first), then by session_id
+                sessions.sort(key=lambda x: (x["date"], x["session_id"]), reverse=True)
+                contexts[context_type] = sessions
 
         return contexts
 
