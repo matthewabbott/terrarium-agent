@@ -108,7 +108,7 @@ class ChatInterface:
 
     async def generate_response(self, user_message: str) -> str:
         """
-        Generate response to user message.
+        Generate response to user message with full conversation history.
 
         Args:
             user_message: User's input
@@ -119,21 +119,12 @@ class ChatInterface:
         # Add user message to history
         self.session.add_message("user", user_message)
 
-        # Get conversation history
-        history = self.session.get_history()
+        # Get full conversation history (includes system prompt)
+        messages = self.session.get_history()
 
-        # Build messages for API (system + all history)
-        # Extract system prompt
-        system_prompt = history[0]["content"] if history[0]["role"] == "system" else None
-        messages = history[1:] if system_prompt else history
-
-        # For now, we'll use the simple generate with just the last user message
-        # In the future, we can pass full history when the API supports it
+        # Use chat method with full history for context-aware responses
         try:
-            response = await self.client.generate(
-                prompt=user_message,
-                system_prompt=system_prompt
-            )
+            response = await self.client.chat(messages=messages)
 
             # Add response to history
             self.session.add_message("assistant", response)

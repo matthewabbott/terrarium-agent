@@ -110,6 +110,59 @@ class VLLMClient:
 
             return data["choices"][0]["message"]["content"]
 
+    async def chat(
+        self,
+        messages: List[Dict[str, str]],
+        temperature: Optional[float] = None,
+        max_tokens: Optional[int] = None,
+        stop: Optional[List[str]] = None
+    ) -> str:
+        """
+        Generate response with full conversation history.
+
+        Args:
+            messages: List of message dicts with 'role' and 'content' keys
+                     (roles: 'system', 'user', 'assistant')
+            temperature: Override default temperature
+            max_tokens: Override default max tokens
+            stop: List of stop sequences
+
+        Returns:
+            Generated text
+
+        Raises:
+            Exception: If generation fails
+        """
+        if not self.session:
+            await self.initialize()
+
+        # Prepare request
+        payload = {
+            "model": self.model,
+            "messages": messages,
+            "temperature": temperature if temperature is not None else self.temperature,
+            "max_tokens": max_tokens if max_tokens is not None else self.max_tokens,
+        }
+
+        if stop:
+            payload["stop"] = stop
+
+        # Call vLLM API (OpenAI-compatible endpoint)
+        url = f"{self.base_url}/v1/chat/completions"
+
+        async with self.session.post(url, json=payload) as response:
+            if response.status != 200:
+                error_text = await response.text()
+                raise Exception(f"vLLM API error ({response.status}): {error_text}")
+
+            data = await response.json()
+
+            # Extract generated text
+            if "choices" not in data or len(data["choices"]) == 0:
+                raise Exception(f"No response from vLLM: {data}")
+
+            return data["choices"][0]["message"]["content"]
+
     async def generate_with_tools(
         self,
         prompt: str,
