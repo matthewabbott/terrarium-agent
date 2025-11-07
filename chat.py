@@ -423,7 +423,44 @@ async def main():
     """Main entry point."""
     import argparse
 
-    parser = argparse.ArgumentParser(description="Terrarium Agent Chat Interface")
+    parser = argparse.ArgumentParser(
+        description="Terrarium Agent - Interactive CLI chat interface with persistent sessions",
+        epilog="""
+Examples:
+  # Interactive mode (pick or create session)
+  python chat.py
+
+  # Start/resume a specific session
+  python chat.py --session-id myproject
+
+  # List all available sessions
+  python chat.py --list-sessions
+
+  # Delete a session
+  python chat.py --delete-session old_session
+
+  # Custom system prompt
+  python chat.py --session-id coding --system "You are a Python expert"
+
+  # Non-persistent (no session saving)
+  python chat.py
+  (then select 'new' and don't provide a session ID)
+
+Session Storage:
+  Sessions are stored in: sessions/cli/YYYY-MM-DD/session_id.json
+  Each session contains conversation history, timestamps, and metadata.
+  Sessions auto-save after each message.
+
+Commands (during chat):
+  /help     - Show available commands
+  /clear    - Clear conversation history
+  /history  - Show full conversation
+  /stats    - Show session statistics (persistent sessions only)
+  /system   - Change system prompt
+  /quit     - Exit chat
+        """,
+        formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     parser.add_argument(
         "--url",
         default="http://localhost:8000",
@@ -442,12 +479,15 @@ async def main():
     parser.add_argument(
         "--session-id",
         default=None,
-        help="Session ID for persistent conversations (e.g., 'main', 'project_x')"
+        metavar="ID",
+        help="Session ID for persistent conversations (e.g., 'main', 'project_x'). "
+             "Omit to use interactive picker."
     )
     parser.add_argument(
         "--storage-dir",
         default=None,
         type=Path,
+        metavar="DIR",
         help="Directory for session storage (default: ./sessions)"
     )
     parser.add_argument(
@@ -493,8 +533,8 @@ async def main():
         vllm_url=args.url,
         model=args.model,
         system_prompt=args.system,
-        session_id=args.session_id,
-        storage_dir=args.storage_dir
+        session_id=session_id,  # Use the session_id variable (from picker or args)
+        storage_dir=storage_dir
     )
 
     await chat.run()
