@@ -58,15 +58,16 @@ Created two demonstration harnesses in `tools/harness_examples.py`:
 ### 6. vLLM Integration ✅
 Created startup and monitoring scripts:
 
-#### `start_vllm.sh`
-- Configures vLLM for GLM-4.5-Air-AWQ-4bit
+#### `start_vllm_docker.sh`
+- Runs vLLM in Docker container for GLM-4.5-Air-AWQ-4bit
 - Settings:
   - float16 dtype (required for AWQ)
-  - Tensor parallel size: 2 (configurable)
+  - Tensor parallel size: 1 (configurable)
   - Tool calling support (glm45 parser)
   - Reasoning mode support
   - 8192 context length
   - 90% GPU memory utilization
+- Uses NVIDIA's official vLLM container (GB10/Blackwell support)
 
 #### `check_model.sh`
 - Verifies model download completion
@@ -109,7 +110,7 @@ terrarium-agent/
 │   └── contexts/            # Context definitions
 ├── main.py                  # Entry point (UPDATED)
 ├── test_harness.py          # Harness tests (NEW)
-├── start_vllm.sh            # vLLM startup (NEW)
+├── start_vllm_docker.sh     # vLLM Docker startup (NEW)
 ├── check_model.sh           # Model checker (NEW)
 ├── HARNESS_GUIDE.md         # Harness documentation (NEW)
 └── requirements.txt         # Dependencies
@@ -124,7 +125,7 @@ terrarium-agent/
 
 ### 2. Start vLLM (once download completes)
 ```bash
-./start_vllm.sh
+./start_vllm_docker.sh
 ```
 
 ### 3. Test Harnesses (without LLM)
@@ -151,7 +152,7 @@ quit                         # Exit harness
 ## Next Steps
 
 ### Immediate (once model downloads)
-1. **Start vLLM server**: `./start_vllm.sh`
+1. **Start vLLM server**: `./start_vllm_docker.sh`
 2. **Test agent**: Run `python main.py` and verify LLM connectivity
 3. **Test harness with LLM**: Use `/harness number_guess` to let the agent play
 

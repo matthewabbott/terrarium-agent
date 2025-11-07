@@ -328,7 +328,7 @@ personality:
 1. **Start vLLM server** (stays running):
    ```bash
    cd terrarium-agent
-   ./start_vllm.sh
+   ./start_vllm_docker.sh
    ```
 
 2. **Start terrarium-irc** (always on):

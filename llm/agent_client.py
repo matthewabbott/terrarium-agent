@@ -199,7 +199,7 @@ async def example_usage():
     # Check if vLLM is available
     if not await client.health_check():
         print("vLLM server not available at http://localhost:8000")
-        print("Start it with: cd terrarium-agent && ./start_vllm.sh")
+        print("Start it with: cd terrarium-agent && ./start_vllm_docker.sh")
         return
 
     # Generate response

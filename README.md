@@ -42,20 +42,32 @@ Read/write files with access controls.
 
 ## Setup
 
+### Prerequisites
+
+- **Docker** + **nvidia-container-toolkit** (for vLLM)
+- **NVIDIA GPU:** GB10 (Blackwell) or compatible with driver 580+
+- **Model:** GLM-4.5-Air-AWQ-4bit downloaded to `models/` directory
+
+### Quick Start
+
 ```bash
-# Install dependencies
+# 1. Check model is downloaded
+./check_model.sh
+
+# 2. Install Python client dependencies
 pip install -r requirements.txt
 
-# Configure
-cp config/agent.yaml.example config/agent.yaml
-# Edit config/agent.yaml with your settings
+# 3. Start vLLM server in Docker (separate terminal)
+./start_vllm_docker.sh
 
-# Run vLLM server (separate terminal)
-vllm serve glm-air-4.5 --quantization awq --dtype half
-
-# Run agent
-python main.py
+# 4. Run agent
+source venv/bin/activate
+python chat.py  # Interactive chat
+# or
+python main.py  # Full agent runtime with tools
 ```
+
+**See [DOCKER_SETUP.md](DOCKER_SETUP.md) for detailed Docker setup and troubleshooting.**
 
 ## Configuration
 

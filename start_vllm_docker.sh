@@ -1,5 +1,6 @@
 #!/bin/bash
-# Startup script for vLLM server with GLM-4.5-Air-AWQ-4bit
+# Docker startup script for vLLM server with GLM-4.5-Air-AWQ-4bit
+# Uses NVIDIA's pre-built vLLM container for DGX Spark / GB10 GPU
 
 set -e
 
@@ -7,18 +8,19 @@ set -e
 MODEL_PATH="./models/GLM-4.5-Air-AWQ-4bit"
 PORT=8000
 HOST="0.0.0.0"
+CONTAINER_NAME="vllm-server"
+IMAGE="nvcr.io/nvidia/vllm:25.09-py3"
 
 # vLLM parameters for GLM-4.5-Air-AWQ-4bit
 DTYPE="float16"  # Required for AWQ quantization
-TENSOR_PARALLEL_SIZE=2  # Adjust based on your GPU count (1, 2, 4, or 8)
-PIPELINE_PARALLEL_SIZE=1  # Keep at 1 unless you have multiple nodes
-
-# Optional: Set visible GPUs (uncomment and adjust if needed)
-# export CUDA_VISIBLE_DEVICES=0,1
+TENSOR_PARALLEL_SIZE=1  # Adjust based on your GPU count (1, 2, 4, or 8)
+MAX_MODEL_LEN=8192
+GPU_MEMORY_UTIL=0.9
 
 echo "========================================"
-echo "Starting vLLM Server"
+echo "Starting vLLM Server (Docker)"
 echo "========================================"
+echo "Image: $IMAGE"
 echo "Model: $MODEL_PATH"
 echo "Port: $PORT"
 echo "Tensor Parallel Size: $TENSOR_PARALLEL_SIZE"
@@ -40,47 +42,64 @@ if [ ! -f "$MODEL_PATH/config.json" ]; then
     exit 1
 fi
 
-# Activate venv if exists
-if [ -d "venv" ]; then
-    echo "Activating virtual environment..."
-    source venv/bin/activate
+# Stop and remove existing container if running
+if docker ps -a | grep -q "$CONTAINER_NAME"; then
+    echo "Stopping existing container..."
+    docker stop "$CONTAINER_NAME" 2>/dev/null || true
+    docker rm "$CONTAINER_NAME" 2>/dev/null || true
+    echo "Existing container removed"
+    echo
 fi
 
-# Check if vllm is installed
-if ! python -c "import vllm" 2>/dev/null; then
-    echo "ERROR: vllm not installed"
-    echo "Install with: pip install vllm"
-    exit 1
-fi
-
-echo "Starting vLLM server..."
+echo "Starting vLLM server in Docker..."
 echo "(This may take a few minutes to load the model)"
+echo "Check logs with: docker logs -f $CONTAINER_NAME"
 echo
 
-# Start vLLM server
+# Start vLLM server in Docker
 # Note: GLM-4.5-Air supports tool calling and reasoning modes
-vllm serve "$MODEL_PATH" \
+docker run -d \
+    --name "$CONTAINER_NAME" \
+    --gpus all \
+    --ipc=host \
+    --ulimit memlock=-1 \
+    --ulimit stack=67108864 \
+    -p "$PORT:$PORT" \
+    -v "$(pwd)/models:/models" \
+    "$IMAGE" \
+    vllm serve "/models/GLM-4.5-Air-AWQ-4bit" \
     --host "$HOST" \
     --port "$PORT" \
     --dtype "$DTYPE" \
     --tensor-parallel-size "$TENSOR_PARALLEL_SIZE" \
-    --pipeline-parallel-size "$PIPELINE_PARALLEL_SIZE" \
     --tool-call-parser glm45 \
     --reasoning-parser glm45 \
     --enable-auto-tool-choice \
-    --max-model-len 8192 \
-    --gpu-memory-utilization 0.9
+    --max-model-len "$MAX_MODEL_LEN" \
+    --gpu-memory-utilization "$GPU_MEMORY_UTIL"
+
+echo
+echo "✓ Container started successfully!"
+echo
+echo "Useful commands:"
+echo "  - Check logs:   docker logs -f $CONTAINER_NAME"
+echo "  - Stop server:  docker stop $CONTAINER_NAME"
+echo "  - Remove:       docker rm $CONTAINER_NAME"
+echo "  - Health check: curl http://localhost:$PORT/health"
+echo "========================================"
 
 # Notes:
+# - --gpus all: Enable GPU access
+# - --ipc=host: Recommended by NVIDIA for vLLM (shared memory)
+# - --ulimit memlock=-1: Unlimited locked memory
+# - --ulimit stack=67108864: Increased stack size (64MB)
 # - --tool-call-parser glm45: Enables GLM-4.5 tool calling
 # - --reasoning-parser glm45: Enables GLM-4.5 reasoning mode
 # - --enable-auto-tool-choice: Automatically selects tools
-# - --max-model-len: Context length (adjust based on your GPU memory)
+# - --max-model-len: Context length (adjust based on GPU memory)
 # - --gpu-memory-utilization: Fraction of GPU memory to use (0.9 = 90%)
 #
 # Adjust tensor-parallel-size based on your GPU setup:
 #   - 1 GPU: --tensor-parallel-size 1
 #   - 2 GPUs: --tensor-parallel-size 2
 #   - 4 GPUs: --tensor-parallel-size 4
-#
-# For debugging, add: --log-level debug

@@ -164,7 +164,7 @@ from llm.agent_wrapper import TerrariumAgentClient as LLMClient
 Terminal 1 - vLLM Server:
 ```bash
 cd terrarium-agent
-./start_vllm.sh
+./start_vllm_docker.sh
 ```
 
 Terminal 2 - IRC Bot:
@@ -239,7 +239,7 @@ async def generate(...):
 
 ### "Connection refused" error
 - Check vLLM is running: `curl http://localhost:8000/health`
-- Start vLLM: `cd terrarium-agent && ./start_vllm.sh`
+- Start vLLM: `cd terrarium-agent && ./start_vllm_docker.sh`
 
 ### Slow first response
 - Normal! Agent initializes on first query (~2-5s)

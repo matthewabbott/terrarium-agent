@@ -2,62 +2,85 @@
 
 ## Prerequisites
 
-1. **Python 3.10+** installed
-2. **vLLM server** running with GLM-Air-4.5
-3. **terrarium-irc** (optional, for IRC tool integration)
+1. **Docker** + **nvidia-container-toolkit** installed
+2. **NVIDIA GPU:** GB10 (Blackwell) or compatible with driver 580+
+3. **Python 3.12+** installed
+4. **Model downloaded:** GLM-4.5-Air-AWQ-4bit in `models/` directory
+5. **terrarium-irc** (optional, for IRC tool integration)
 
 ## Setup
 
-### 1. Install Dependencies
+### 1. Verify Prerequisites
 
 ```bash
+# Check GPU and driver
+nvidia-smi
+
+# Check Docker
+docker --version
+
+# Check nvidia-container-toolkit
+docker run --rm --gpus all nvidia/cuda:12.8.0-base-ubuntu22.04 nvidia-smi
+
+# Check model
 cd terrarium-agent
+./check_model.sh
+```
+
+All should succeed before continuing.
+
+### 2. Install Python Client Dependencies
+
+```bash
+# Create/activate venv
+python3 -m venv venv
+source venv/bin/activate
+
+# Install lightweight client dependencies
 pip install -r requirements.txt
 ```
 
-### 2. Configure Agent
+**Note:** vLLM and PyTorch run in Docker, not in venv.
 
-```bash
-# Copy example config
-cp config/agent.yaml.example config/agent.yaml
-
-# Edit config with your settings
-nano config/agent.yaml
-```
-
-### 3. Start vLLM Server
+### 3. Start vLLM Server (Docker)
 
 In a separate terminal:
 
 ```bash
-# Install vLLM (if not already installed)
-pip install vllm
-
-# Download GLM-Air-4.5 model (if needed)
-# Model should be in HuggingFace format, 4-bit quantized with AWQ/GPTQ
-
-# Start vLLM server
-vllm serve glm-air-4.5 \
-  --quantization awq \
-  --dtype half \
-  --port 8000
+cd terrarium-agent
+./start_vllm_docker.sh
 ```
 
-Wait for vLLM to load the model (may take a minute).
+Wait for model to load (~2 minutes). Check logs:
+```bash
+docker logs -f vllm-server
+# Look for: "Application startup complete"
+```
 
 ## Running the Agent
 
-### Interactive Mode
+### Simple Chat Interface
 
 ```bash
+source venv/bin/activate
+python chat.py
+```
+
+Interactive CLI for chatting with the agent. Type `/help` for commands.
+
+### Full Agent Runtime (with Tools & Harnesses)
+
+```bash
+source venv/bin/activate
 python main.py
 ```
 
-You'll get an interactive prompt where you can:
+Interactive prompt where you can:
 - Chat with the agent
 - Switch contexts with `/context <name>`
 - List contexts with `/list`
 - View tools with `/tools`
+- Start harness sessions with `/harness <name>`
 
 ### Example Session
 

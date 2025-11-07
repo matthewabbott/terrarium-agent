@@ -64,7 +64,7 @@ if [ "$SAFETENSOR_COUNT" -eq 13 ] && [ "$INCOMPLETE_COUNT" -eq 0 ]; then
     echo "Status: ✅ Model appears complete and ready!"
     echo
     echo "You can start vLLM with:"
-    echo "  ./start_vllm.sh"
+    echo "  ./start_vllm_docker.sh"
 elif [ "$INCOMPLETE_COUNT" -gt 0 ]; then
     echo "Status: ⏳ Download in progress..."
     echo
