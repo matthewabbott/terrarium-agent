@@ -137,6 +137,38 @@ Agent: [Agent writes fibonacci function]
 You: quit
 ```
 
+## For External Integration (IRC, Web, Games)
+
+If you're integrating Terrarium Agent into another application (like terrarium-irc), use the HTTP API approach:
+
+**1. Start the Services:**
+```bash
+# Terminal 1: vLLM
+./start_vllm_docker.sh
+
+# Terminal 2: Agent server
+python server.py
+```
+
+**2. Integrate from Your App:**
+```python
+# In terrarium-irc or your application
+import requests
+
+def get_agent_response(conversation_history):
+    response = requests.post(
+        "http://localhost:8080/v1/chat/completions",
+        json={"messages": conversation_history}
+    )
+    return response.json()["choices"][0]["message"]["content"]
+```
+
+**Complete Integration Guide:** See [INTEGRATION.md](INTEGRATION.md) for detailed examples including:
+- IRC bot with per-channel sessions
+- Conversation history management
+- Error handling & retries
+- Python client library usage
+
 ## Contexts
 
 ### IRC Context

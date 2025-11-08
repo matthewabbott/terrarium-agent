@@ -121,24 +121,33 @@ Terrarium Agent supports **persistent conversation contexts** for multiple simul
 
 ### Integration with terrarium-irc
 
-Design follows library integration pattern (see `INTEGRATION_DESIGN.md`):
-1. terrarium-irc imports terrarium-agent as library
-2. Uses `AgentClient` class (in `llm/` - planned) for on-demand agent invocation
-3. Agent runtime created per query or kept warm
-4. vLLM server runs persistently
-5. IRC bot passes channel context to agent
+Design follows HTTP API pattern (see `INTEGRATION.md`):
+1. Start agent server: `python server.py` (port 8080)
+2. terrarium-irc makes HTTP POST requests to `/v1/chat/completions`
+3. IRC bot manages conversation history per channel
+4. vLLM server runs persistently in Docker (port 8000)
+5. Agent server is stateless - clients manage their own contexts
+
+**Benefits:** Process isolation, language-agnostic, simple deployment
 
 ## Key Files
 
+- `server.py` - **HTTP API server (FastAPI, port 8080)**
+- `client_library.py` - **Python client for HTTP API integration**
 - `agent/runtime.py` - Core agent loop and tool execution
 - `agent/context.py` - Context/persona management
-- `llm/vllm_client.py` - vLLM API client
+- `llm/vllm_client.py` - vLLM API client (with streaming support)
 - `tools/base.py` - Tool interface
 - `tools/harness.py` - Harness (environment) interface
 - `tools/harness_examples.py` - Example harnesses (NumberGuess, TextAdventure)
 - `main.py` - Interactive agent with harness sessions
-- `chat.py` - Simple CLI chat interface
+- `chat.py` - Simple CLI chat interface with persistent sessions
 - `config/contexts/*.yaml` - Context definitions
+
+**Documentation:**
+- `INTEGRATION.md` - **How to integrate external apps (IRC, web, games)**
+- `AGENT_API.md` - HTTP API specification
+- `SESSION_STORAGE.md` - Client-side session management patterns
 
 ## Development Patterns
 

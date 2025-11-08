@@ -77,9 +77,11 @@ source venv/bin/activate
 python main.py
 ```
 
-**See [QUICKSTART.md](QUICKSTART.md) for detailed instructions.**
-**See [AGENT_API.md](AGENT_API.md) for HTTP API documentation.**
-**See [DOCKER_SETUP.md](DOCKER_SETUP.md) for Docker setup and troubleshooting.**
+**Documentation:**
+- [QUICKSTART.md](QUICKSTART.md) - Detailed setup instructions
+- [INTEGRATION.md](INTEGRATION.md) - **How to integrate external apps (IRC, web, games)**
+- [AGENT_API.md](AGENT_API.md) - HTTP API specification
+- [DOCKER_SETUP.md](DOCKER_SETUP.md) - Docker setup and troubleshooting
 
 ## Configuration
 
@@ -99,6 +101,21 @@ See `config/` directory for:
 - [ ] Context management
 - [ ] Sandbox implementation
 
+## External Integration
+
+Terrarium Agent provides an **HTTP API** for integration with external applications.
+
+**For IRC Integration:**
+- See [INTEGRATION.md](INTEGRATION.md) for complete guide
+- Start agent server: `python server.py`
+- Make HTTP requests from terrarium-irc to `http://localhost:8080/v1/chat/completions`
+- Client manages conversation history (stateless server)
+
+**Other Use Cases:**
+- Web chat applications
+- Game environments (harnesses)
+- Custom tools and bots
+
 ## Related Projects
 
-- [terrarium-irc](../terrarium-irc) - IRC bot/client used by IRC tool
+- [terrarium-irc](../terrarium-irc) - IRC bot (integrates via HTTP API)

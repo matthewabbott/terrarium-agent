@@ -1,259 +1,421 @@
-# Session Storage Format
+# Session Management for Clients
 
-This document describes the session storage system used by Terrarium Agent for managing persistent conversation contexts across multiple endpoints (IRC, games, web, CLI).
+This guide explains how to manage conversation sessions when using the Terrarium Agent HTTP API.
 
-## Storage Structure
+## Overview
 
-Sessions are organized by context type and date:
+**Key Principle:** The agent server is stateless. **You** (the client) manage conversation history.
 
-```
-sessions/
-├── cli/
-│   ├── 2025-11-06/
-│   │   ├── xyz123.json
-│   │   └── main.json
-│   └── 2025-11-05/
-│       └── morning_chat.json
-├── irc/
-│   └── 2025-11-06/
-│       ├── #python.json
-│       └── #linux.json
-├── game/
-│   └── 2025-11-06/
-│       ├── pokemon_run1.json
-│       └── chess_game2.json
-└── web/
-    └── 2025-11-06/
-        └── session_abc123.json
-```
+Every request to `/v1/chat/completions` includes the full conversation history:
+- System prompt (personality/instructions)
+- Previous user messages
+- Previous assistant responses
 
-### Path Format
+The server processes the request and returns a new response. It doesn't remember anything after the request completes.
 
-```
-sessions/{context_type}/{date}/{session_id}.json
-```
+## Message Format
 
-- **context_type**: Type of endpoint (cli, irc, game, web)
-- **date**: YYYY-MM-DD format from session creation
-- **session_id**: Unique identifier within context type
-
-## Context ID Format
-
-Full context identifier: `{type}:{id}`
-
-Examples:
-- `cli:main`
-- `irc:#python`
-- `game:pokemon_run1`
-- `web:session_abc`
-
-## Session File Format
-
-Each session is stored as a JSON file with the following structure:
+Follow OpenAI's chat completion format:
 
 ```json
 {
-  "session_id": "main",
-  "context_type": "cli",
-  "system_prompt": "You are a helpful AI assistant.",
   "messages": [
     {
+      "role": "system",
+      "content": "You are a helpful IRC bot. Be concise and friendly."
+    },
+    {
       "role": "user",
-      "content": "Hello!",
-      "timestamp": "2025-11-06T14:30:00.123456"
+      "content": "alice: What is Python?"
     },
     {
       "role": "assistant",
-      "content": "Hi! How can I help you?",
-      "timestamp": "2025-11-06T14:30:03.456789"
+      "content": "Python is a programming language known for readability and versatility."
+    },
+    {
+      "role": "user",
+      "content": "bob: Can you show an example?"
     }
-  ],
-  "metadata": {
-    "created_at": "2025-11-06T14:30:00.123456",
-    "last_active": "2025-11-06T14:35:12.987654",
-    "message_count": 10,
-    "session_id": "main",
-    "context_type": "cli",
-    "session_date": "2025-11-06"
-  }
+  ]
 }
 ```
 
-### Fields
+### Roles
 
-**Top Level:**
-- `session_id` (string): Unique identifier
-- `context_type` (string): Context type (cli, irc, game, web)
-- `system_prompt` (string): System prompt for the conversation
-- `messages` (array): Conversation history
-- `metadata` (object): Session metadata
+- **system**: Instructions for the agent (personality, constraints, context)
+  - Appears first in the messages array
+  - Sets the tone and behavior
+  - Example: "You are a helpful IRC bot. Be concise."
 
-**Message Object:**
-- `role` (string): "user" or "assistant"
-- `content` (string): Message text
-- `timestamp` (string): ISO 8601 timestamp
+- **user**: Messages from users
+  - For IRC: Prefix with username (`alice: What is Python?`)
+  - For web: Just the user's message
+  - For games: Game state or user action
 
-**Metadata Object:**
-- `created_at` (string): Session creation timestamp
-- `last_active` (string): Last activity timestamp
-- `message_count` (integer): Number of messages
-- `session_id` (string): Session identifier
-- `context_type` (string): Context type
-- `session_date` (string): Date in YYYY-MM-DD format
+- **assistant**: Previous responses from the agent
+  - Add these to maintain conversation flow
+  - Agent uses them for context
 
-## API Usage
+## Client-Side Session Management
 
-### Python API
+### Simple Pattern (In-Memory)
 
 ```python
-from agent.multi_context_manager import MultiContextManager
-from llm.vllm_client import VLLMClient
+class ConversationSession:
+    """Manage a single conversation session in memory."""
 
-# Initialize
-client = VLLMClient(base_url="http://localhost:8000")
-manager = MultiContextManager(client, storage_dir="./sessions")
+    def __init__(self, system_prompt: str):
+        self.system_prompt = system_prompt
+        self.messages = []
 
-# Process with context (auto-saves)
-response = await manager.process_with_context(
-    context_id="irc:#python",
-    user_message="What's a decorator?",
-    system_prompt="You are a helpful IRC bot. Be concise."
-)
+    def add_user_message(self, content: str):
+        """Add user message to history."""
+        self.messages.append({"role": "user", "content": content})
 
-# List all sessions
-all_contexts = manager.list_all_contexts()
-# Returns: {"cli": [{"session_id": "main", "date": "2025-11-06", ...}], ...}
+    def add_assistant_message(self, content: str):
+        """Add assistant response to history."""
+        self.messages.append({"role": "assistant", "content": content})
 
-# Get session stats
-stats = manager.get_stats("cli:main")
-# Returns: {"context_id": "cli:main", "message_count": 10, ...}
+    def get_messages(self):
+        """Get full conversation history with system prompt."""
+        return [
+            {"role": "system", "content": self.system_prompt},
+            *self.messages
+        ]
 
-# Clear history (keeps session)
-manager.clear_context("cli:main")
+    def clear(self):
+        """Clear conversation history (keep system prompt)."""
+        self.messages = []
 
-# Delete session entirely
-manager.delete_context("cli:main")
+
+# Usage
+session = ConversationSession("You are a helpful assistant.")
+session.add_user_message("What is 2+2?")
+
+# Send to agent
+response = agent_client.chat(session.get_messages())
+
+# Add response to history
+session.add_assistant_message(response)
+
+# Next turn has context
+session.add_user_message("What about 3+3?")
+response = agent_client.chat(session.get_messages())  # Knows we're doing math
 ```
 
-### CLI Usage
+### Persistent Pattern (File/Database)
 
-```bash
-# Interactive session picker
-python chat.py
+For IRC bots or web apps that need persistence across restarts:
 
-# Use specific session
-python chat.py --session-id main
+```python
+import json
+from pathlib import Path
+from datetime import datetime
 
-# List all sessions
-python chat.py --list-sessions
+class PersistentSession:
+    """Manage a conversation session with file persistence."""
 
-# Delete a session
-python chat.py --delete-session main
+    def __init__(self, session_id: str, storage_dir: str = "./sessions"):
+        self.session_id = session_id
+        self.storage_dir = Path(storage_dir)
+        self.session_file = self.storage_dir / f"{session_id}.json"
+        self.system_prompt = "You are a helpful assistant."
+        self.messages = []
+
+        # Load existing session
+        if self.session_file.exists():
+            self.load()
+
+    def add_user_message(self, content: str):
+        """Add user message and save."""
+        self.messages.append({
+            "role": "user",
+            "content": content,
+            "timestamp": datetime.now().isoformat()
+        })
+        self.save()
+
+    def add_assistant_message(self, content: str):
+        """Add assistant response and save."""
+        self.messages.append({
+            "role": "assistant",
+            "content": content,
+            "timestamp": datetime.now().isoformat()
+        })
+        self.save()
+
+    def get_messages(self):
+        """Get conversation history without timestamps."""
+        return [
+            {"role": "system", "content": self.system_prompt},
+            *[{"role": m["role"], "content": m["content"]} for m in self.messages]
+        ]
+
+    def save(self):
+        """Save session to disk."""
+        self.storage_dir.mkdir(parents=True, exist_ok=True)
+        data = {
+            "session_id": self.session_id,
+            "system_prompt": self.system_prompt,
+            "messages": self.messages
+        }
+        self.session_file.write_text(json.dumps(data, indent=2))
+
+    def load(self):
+        """Load session from disk."""
+        data = json.loads(self.session_file.read_text())
+        self.system_prompt = data.get("system_prompt", self.system_prompt)
+        self.messages = data.get("messages", [])
+
+
+# Usage
+session = PersistentSession("main")
+session.add_user_message("What is Python?")
+response = agent_client.chat(session.get_messages())
+session.add_assistant_message(response)
+# Automatically saved to disk
+
+# Later or after restart
+session = PersistentSession("main")  # Loads previous conversation
+session.add_user_message("Can you elaborate?")  # Continues where left off
 ```
 
-## Session Lifecycle
+## Context Window Management
 
-1. **Creation**: New session created on first message
-   - Assigned today's date
-   - Saved to `sessions/{type}/{date}/{id}.json`
+### The Problem
 
-2. **Usage**: Messages added during conversation
-   - Auto-saved after each interaction
-   - `last_active` updated
+LLMs have limited context windows (number of tokens they can process). For GLM-4.5-Air, this is typically 4096-8192 tokens.
 
-3. **Resume**: Load existing session
-   - Searches across dates if needed
-   - Full history restored
+A long conversation can exceed this limit.
 
-4. **Archive**: Old sessions remain on disk
-   - Organized by date for easy cleanup
-   - Can manually archive/delete old dates
+### Solution: Sliding Window
 
-## Migration
+Keep only recent messages:
 
-To migrate from flat structure (pre-date organization):
-
-```bash
-# Dry run (preview changes)
-python scripts/migrate_sessions.py --dry-run
-
-# Actual migration
-python scripts/migrate_sessions.py
-
-# Migrate custom directory
-python scripts/migrate_sessions.py --storage-dir ./my_sessions
+```python
+def get_messages(self, max_messages: int = 20):
+    """Get recent conversation history with system prompt."""
+    recent = self.messages[-max_messages:]  # Last N messages
+    return [
+        {"role": "system", "content": self.system_prompt},
+        *recent
+    ]
 ```
 
-The migration script:
-- Reads `created_at` from metadata
-- Creates date subdirectories
-- Moves sessions to appropriate date folders
-- Updates metadata with `session_date` field
+**Advantages:**
+- Prevents context overflow
+- Keeps recent/relevant information
+- Conversation stays focused
+
+**Trade-offs:**
+- Loses older context
+- Agent "forgets" earlier conversation
+
+### Advanced: Summarization
+
+For longer conversations, summarize old messages:
+
+```python
+def get_messages_with_summary(self):
+    """Get messages with summarized history."""
+    if len(self.messages) <= 10:
+        # Short conversation - send everything
+        return [
+            {"role": "system", "content": self.system_prompt},
+            *self.messages
+        ]
+    else:
+        # Long conversation - summarize middle, keep recent
+        old_messages = self.messages[:len(self.messages)-10]
+        recent_messages = self.messages[-10:]
+
+        # Generate summary (make a separate agent request)
+        summary = generate_summary(old_messages)
+
+        return [
+            {"role": "system", "content": self.system_prompt},
+            {"role": "system", "content": f"Previous conversation summary: {summary}"},
+            *recent_messages
+        ]
+```
 
 ## Best Practices
 
-### Session IDs
+### System Prompts
 
-- **CLI**: Use descriptive names (`main`, `project_x`, `brainstorm`)
-- **IRC**: Use channel names (`#python`, `#linux`)
-- **Games**: Use game+run (`pokemon_run1`, `chess_game2`)
-- **Web**: Use session tokens (`session_abc123`)
+Good system prompts are:
+- **Specific**: "You are an IRC bot in #python. Help with Python questions. Be concise (2-3 sentences max)."
+- **Contextual**: Include relevant constraints or domain knowledge
+- **Consistent**: Use the same prompt for the same conversation
 
-### Cleanup
+Bad system prompts:
+- Too vague: "You are helpful."
+- Too long: (1000+ words of instructions)
+- Changing: Different prompt each request breaks context
 
-- Archive old date folders periodically
-- Delete unused sessions with `--delete-session`
-- Keep active sessions, archive others
+### Session Organization
+
+**For IRC bots:**
+```python
+# One session per channel
+sessions = {
+    "#python": PersistentSession("irc_python"),
+    "#linux": PersistentSession("irc_linux"),
+}
+```
+
+**For web apps:**
+```python
+# One session per user or per browser session
+session_id = request.cookies.get("session_id")
+session = PersistentSession(f"web_{session_id}")
+```
+
+**For games:**
+```python
+# One session per game instance
+session = PersistentSession(f"game_{game_id}")
+```
 
 ### Storage Location
 
-- Default: `./sessions/` (relative to project root)
-- Custom: Use `--storage-dir` or `storage_dir` parameter
-- Production: Consider absolute paths
-
-### Backup
-
-- Sessions are just JSON files
-- Easy to backup: `tar -czf sessions-backup.tar.gz sessions/`
-- Version control: `.gitignore` should exclude `sessions/`
-
-## Multi-Context Architecture
-
-This storage system supports the Terrarium Agent's multi-context architecture:
-
-- **Multiple endpoints** share one vLLM instance
-- **Sequential processing**: One context active at a time
-- **Fast switching**: In-memory cache + vLLM APC
-- **Isolation**: Each context has independent history
-
-Example flow:
-```
-IRC bot gets message → manager.process_with_context("irc:#python", msg)
-Pokemon needs move   → manager.process_with_context("game:pokemon", state)
-User asks question   → manager.process_with_context("cli:main", question)
+**Development:**
+```python
+storage_dir = "./sessions"  # Relative to project
 ```
 
-Each maintains separate conversation history, saved to disk.
+**Production:**
+```python
+storage_dir = "/var/lib/myapp/sessions"  # Absolute path
+```
 
-## Future Enhancements
+**Backup:**
+Sessions are just JSON files - easy to backup:
+```bash
+tar -czf sessions-backup.tar.gz sessions/
+```
 
-Planned improvements:
-- SQLite backend option (queryable, analytics)
-- Automatic archival (move old sessions to archive/)
-- Session search by content
-- Export to different formats
-- Session statistics dashboard
+### Message Cleanup
 
-## Notes
+Periodically clean up old sessions:
 
-- **Thread safety**: Not currently thread-safe (use for sequential processing)
-- **File locking**: No locking (single-process assumption)
-- **Cache size**: Default 10 sessions in memory (configurable)
-- **Auto-save**: Enabled by default (can disable per-session)
+```python
+from datetime import datetime, timedelta
+
+def cleanup_old_sessions(storage_dir, days=30):
+    """Delete sessions older than N days."""
+    cutoff = datetime.now() - timedelta(days=days)
+
+    for session_file in Path(storage_dir).glob("*.json"):
+        if session_file.stat().st_mtime < cutoff.timestamp():
+            session_file.unlink()  # Delete
+```
+
+## Examples
+
+### IRC Bot (Per-Channel Sessions)
+
+```python
+from client_library import AgentClient
+
+client = AgentClient()
+sessions = {}
+
+def on_message(channel, user, message):
+    """Handle IRC message with persistent context."""
+    # Get or create session for this channel
+    if channel not in sessions:
+        sessions[channel] = PersistentSession(
+            f"irc_{channel.lstrip('#')}",
+            storage_dir="./irc_sessions"
+        )
+        sessions[channel].system_prompt = (
+            f"You are a helpful IRC bot in {channel}. "
+            "Be concise and friendly. Answer questions briefly."
+        )
+
+    session = sessions[channel]
+
+    # Add user message (with username)
+    session.add_user_message(f"{user}: {message}")
+
+    # Get response from agent
+    response = client.chat(session.get_messages())
+
+    # Add response to history
+    session.add_assistant_message(response)
+
+    # Send to IRC
+    send_to_irc(channel, response)
+```
+
+### Web Chat (User Sessions)
+
+```python
+from flask import Flask, request, session
+from client_library import AgentClient
+
+app = Flask(__name__)
+client = AgentClient()
+
+@app.route("/chat", methods=["POST"])
+def chat():
+    """Handle web chat message."""
+    user_message = request.json["message"]
+
+    # Get or create session for this user
+    session_id = session.get("session_id")
+    if not session_id:
+        session_id = generate_unique_id()
+        session["session_id"] = session_id
+
+    conv_session = PersistentSession(
+        f"web_{session_id}",
+        storage_dir="./web_sessions"
+    )
+
+    # Add message and get response
+    conv_session.add_user_message(user_message)
+    response = client.chat(conv_session.get_messages())
+    conv_session.add_assistant_message(response)
+
+    return {"response": response}
+```
+
+### Game (Stateful Environment)
+
+```python
+class GameSession:
+    """Manage game session with agent."""
+
+    def __init__(self, game_id: str):
+        self.game_id = game_id
+        self.session = PersistentSession(
+            f"game_{game_id}",
+            storage_dir="./game_sessions"
+        )
+        self.session.system_prompt = (
+            "You are playing a text adventure game. "
+            "Describe what you see and suggest actions."
+        )
+        self.client = AgentClient()
+
+    def take_action(self, action: str):
+        """Process player action and get agent response."""
+        # Add action to history
+        self.session.add_user_message(f"Player action: {action}")
+
+        # Get agent's description/response
+        response = self.client.chat(self.session.get_messages())
+
+        # Add to history
+        self.session.add_assistant_message(response)
+
+        return response
+```
 
 ## See Also
 
-- `CLAUDE.md` - Project overview
-- `agent/session_manager.py` - PersistentSession implementation
-- `agent/multi_context_manager.py` - MultiContextManager implementation
-- `scripts/migrate_sessions.py` - Migration utility
+- [INTEGRATION.md](INTEGRATION.md) - Complete integration guide
+- [AGENT_API.md](AGENT_API.md) - HTTP API specification
+- [client_library.py](client_library.py) - Python client with ConversationContext helper
