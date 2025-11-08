@@ -20,9 +20,10 @@ from typing import List, Dict, Optional, Any
 from datetime import datetime
 
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 import uvicorn
+import json
 
 from llm.vllm_client import VLLMClient
 
@@ -52,6 +53,7 @@ class ChatCompletionRequest(BaseModel):
     temperature: Optional[float] = Field(0.7, ge=0.0, le=2.0, description="Sampling temperature")
     max_tokens: Optional[int] = Field(2048, ge=1, description="Maximum tokens to generate")
     stop: Optional[List[str]] = Field(None, description="Stop sequences")
+    stream: bool = Field(False, description="Enable streaming (Server-Sent Events)")
 
 
 class GenerateRequest(BaseModel):
@@ -285,12 +287,12 @@ async def general_exception_handler(request: Request, exc: Exception):
 # Endpoints
 # ============================================================================
 
-@app.post("/v1/chat/completions", response_model=ChatCompletionResponse)
+@app.post("/v1/chat/completions")
 async def chat_completions(request: ChatCompletionRequest):
     """
     OpenAI-compatible chat completion endpoint.
 
-    Generate a chat response given conversation history.
+    Supports both streaming (SSE) and non-streaming responses.
     Clients manage their own conversation contexts.
     """
     # Validate request
@@ -303,7 +305,14 @@ async def chat_completions(request: ChatCompletionRequest):
     # Convert to format vLLM expects
     messages = [{"role": msg.role, "content": msg.content} for msg in request.messages]
 
-    # Define request function
+    # Handle streaming response
+    if request.stream:
+        return StreamingResponse(
+            stream_chat_completion(messages, request),
+            media_type="text/event-stream"
+        )
+
+    # Handle non-streaming response
     async def process_request():
         try:
             response = await app_state.vllm_client.chat(
@@ -345,6 +354,46 @@ async def chat_completions(request: ChatCompletionRequest):
             "total_tokens": 0
         }
     )
+
+
+async def stream_chat_completion(messages: List[Dict], request: ChatCompletionRequest):
+    """
+    Stream chat completion chunks as Server-Sent Events (SSE).
+
+    For simplicity, streaming requests bypass the queue and go directly to vLLM.
+    This is acceptable because:
+    1. Streaming is typically used for interactive UIs where responsiveness matters
+    2. vLLM handles concurrent requests efficiently with continuous batching
+    3. Queue is primarily for IRC bot use case which uses non-streaming
+
+    This is an async generator that yields SSE-formatted chunks.
+    """
+    try:
+        # Stream from vLLM (no queue wait)
+        async for chunk in app_state.vllm_client.chat_stream(
+            messages=messages,
+            temperature=request.temperature,
+            max_tokens=request.max_tokens,
+            stop=request.stop
+        ):
+            # Format as SSE: "data: {json}\n\n"
+            yield f"data: {json.dumps(chunk)}\n\n"
+            # Allow event loop to process
+            await asyncio.sleep(0)
+
+        # Send completion signal
+        yield "data: [DONE]\n\n"
+
+    except Exception as e:
+        logger.error(f"Streaming error: {e}")
+        # Send error as SSE event
+        error_chunk = {
+            "error": {
+                "message": str(e),
+                "type": "server_error"
+            }
+        }
+        yield f"data: {json.dumps(error_chunk)}\n\n"
 
 
 @app.post("/v1/generate", response_model=GenerateResponse)

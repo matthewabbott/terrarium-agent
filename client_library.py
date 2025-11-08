@@ -24,6 +24,7 @@ Usage:
 """
 
 import time
+import json
 from typing import List, Dict, Optional
 import requests
 from requests.exceptions import RequestException, Timeout, ConnectionError
@@ -160,6 +161,98 @@ class AgentClient:
         )
 
         return response_data["response"]
+
+    def chat_stream(
+        self,
+        messages: List[Dict[str, str]],
+        temperature: float = 0.7,
+        max_tokens: int = 2048,
+        model: Optional[str] = None
+    ):
+        """
+        Stream chat completion chunks (Server-Sent Events).
+
+        Yields response text incrementally as it's generated.
+
+        Args:
+            messages: Conversation history (list of {"role": "...", "content": "..."})
+            temperature: Sampling temperature 0.0-2.0 (default: 0.7)
+            max_tokens: Maximum tokens to generate (default: 2048)
+            model: Model name (auto-detected if omitted)
+
+        Yields:
+            str: Text chunks as they're generated
+
+        Raises:
+            AgentRequestError: Invalid request (4xx)
+            AgentServerError: Server error (5xx)
+            AgentConnectionError: Cannot connect to server
+        """
+        payload = {
+            "messages": messages,
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+            "stream": True  # Enable streaming
+        }
+
+        if model:
+            payload["model"] = model
+
+        url = f"{self.base_url}/v1/chat/completions"
+
+        try:
+            response = requests.post(
+                url,
+                json=payload,
+                timeout=self.timeout,
+                stream=True  # Enable streaming in requests
+            )
+
+            # Handle errors
+            if response.status_code >= 400:
+                error_data = self._extract_error(response)
+                if response.status_code >= 500:
+                    raise AgentServerError(f"Server error: {error_data}")
+                else:
+                    raise AgentRequestError(f"Request error: {error_data}")
+
+            # Parse SSE stream
+            for line in response.iter_lines(decode_unicode=True):
+                if not line or not line.strip():
+                    continue
+
+                # SSE format: "data: {json}"
+                if line.startswith('data: '):
+                    data = line[6:]  # Remove 'data: ' prefix
+
+                    # Check for stream end
+                    if data == '[DONE]':
+                        break
+
+                    # Parse chunk
+                    try:
+                        chunk = json.loads(data)
+
+                        # Extract text from chunk
+                        if "choices" in chunk and len(chunk["choices"]) > 0:
+                            choice = chunk["choices"][0]
+
+                            # Streaming chunks have "delta" instead of "message"
+                            if "delta" in choice:
+                                content = choice["delta"].get("content", "")
+                                if content:
+                                    yield content
+
+                    except json.JSONDecodeError:
+                        # Skip malformed chunks
+                        continue
+
+        except ConnectionError:
+            raise AgentConnectionError(f"Cannot connect to agent server at {self.base_url}")
+        except Timeout:
+            raise AgentConnectionError(f"Request timed out after {self.timeout}s")
+        except RequestException as e:
+            raise AgentClientError(f"Stream request failed: {e}")
 
     def health_check(self) -> Dict[str, any]:
         """
@@ -406,6 +499,32 @@ def example_chat_with_history():
     print(f"Assistant: {response}\n")
 
 
+def example_streaming():
+    """Example: Streaming chat with live typing effect."""
+    client = AgentClient("http://localhost:8080")
+    context = ConversationContext("You are a helpful assistant.")
+
+    # Ask a question
+    context.add_user_message("Explain how HTTP streaming works in 2-3 sentences.")
+
+    print("Assistant: ", end="", flush=True)
+
+    # Stream response (yields text chunks)
+    full_response = ""
+    try:
+        for chunk in client.chat_stream(context.get_messages()):
+            print(chunk, end="", flush=True)
+            full_response += chunk
+
+        print("\n")  # New line after streaming completes
+
+        # Add to context for next turn
+        context.add_assistant_message(full_response)
+
+    except AgentClientError as e:
+        print(f"\nError: {e}")
+
+
 def example_irc_bot():
     """Example: IRC bot with per-channel contexts."""
     client = AgentClient("http://localhost:8080")
@@ -471,6 +590,12 @@ if __name__ == "__main__":
             print("=" * 60)
             example_chat_with_history()
 
+        elif example_name == "stream":
+            print("=" * 60)
+            print("Example: Streaming Chat")
+            print("=" * 60)
+            example_streaming()
+
         elif example_name == "irc":
             print("=" * 60)
             print("Example: IRC Bot")
@@ -479,7 +604,7 @@ if __name__ == "__main__":
 
         else:
             print(f"Unknown example: {example_name}")
-            print("Available examples: simple, chat, irc")
+            print("Available examples: simple, chat, stream, irc")
 
     else:
         # Run all examples

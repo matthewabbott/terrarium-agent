@@ -38,10 +38,14 @@ class VLLMClient:
         self.session: Optional[aiohttp.ClientSession] = None
 
     async def initialize(self):
-        """Initialize HTTP session."""
+        """Initialize HTTP session with improved timeout configuration."""
         if not self.session:
             self.session = aiohttp.ClientSession(
-                timeout=aiohttp.ClientTimeout(total=self.timeout)
+                timeout=aiohttp.ClientTimeout(
+                    total=600,      # 10 minutes max for long responses
+                    connect=10,     # 10 seconds to establish connection
+                    sock_read=120   # 2 minutes between chunks (for streaming)
+                )
             )
 
     async def shutdown(self):
@@ -162,6 +166,72 @@ class VLLMClient:
                 raise Exception(f"No response from vLLM: {data}")
 
             return data["choices"][0]["message"]["content"]
+
+    async def chat_stream(
+        self,
+        messages: List[Dict[str, str]],
+        temperature: Optional[float] = None,
+        max_tokens: Optional[int] = None,
+        stop: Optional[List[str]] = None
+    ):
+        """
+        Generate streaming response with full conversation history.
+
+        Yields Server-Sent Events (SSE) chunks as they're generated.
+
+        Args:
+            messages: List of message dicts with 'role' and 'content' keys
+            temperature: Override default temperature
+            max_tokens: Override default max tokens
+            stop: List of stop sequences
+
+        Yields:
+            Dict chunks in OpenAI streaming format
+
+        Raises:
+            Exception: If generation fails
+        """
+        if not self.session:
+            await self.initialize()
+
+        # Prepare request with streaming enabled
+        payload = {
+            "model": self.model,
+            "messages": messages,
+            "temperature": temperature if temperature is not None else self.temperature,
+            "max_tokens": max_tokens if max_tokens is not None else self.max_tokens,
+            "stream": True  # Enable streaming
+        }
+
+        if stop:
+            payload["stop"] = stop
+
+        url = f"{self.base_url}/v1/chat/completions"
+
+        async with self.session.post(url, json=payload) as response:
+            if response.status != 200:
+                error_text = await response.text()
+                raise Exception(f"vLLM API error ({response.status}): {error_text}")
+
+            # Parse SSE stream
+            async for line in response.content:
+                line = line.decode('utf-8').strip()
+
+                # SSE format: "data: {json}\n"
+                if line.startswith('data: '):
+                    data = line[6:]  # Remove 'data: ' prefix
+
+                    # Check for stream end
+                    if data == '[DONE]':
+                        break
+
+                    # Parse JSON chunk
+                    try:
+                        chunk = json.loads(data)
+                        yield chunk
+                    except json.JSONDecodeError:
+                        # Skip malformed chunks
+                        continue
 
     async def generate_with_tools(
         self,

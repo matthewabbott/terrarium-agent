@@ -69,6 +69,7 @@ Generate a chat response given conversation history.
 - `temperature` (float, optional): Sampling temperature 0.0-2.0 (default: 0.7)
 - `max_tokens` (integer, optional): Max tokens to generate (default: 2048)
 - `stop` (array of strings, optional): Stop sequences
+- `stream` (boolean, optional): Enable streaming (Server-Sent Events) (default: false)
 
 **Response:**
 ```json
@@ -111,6 +112,39 @@ Generate a chat response given conversation history.
 - 400: Invalid request (missing fields, invalid format)
 - 500: Server error (vLLM failure, etc.)
 - 503: Server unavailable (vLLM not ready)
+
+**Streaming Support:**
+
+Enable streaming by setting `stream: true` in the request. Response will be Server-Sent Events (SSE) format:
+
+```json
+{
+  "model": "glm-4.5-air",
+  "messages": [{"role": "user", "content": "Count to 5"}],
+  "stream": true
+}
+```
+
+**Streaming Response** (SSE format):
+```
+data: {"id":"chatcmpl-123","object":"chat.completion.chunk","created":1699000000,"model":"glm-4.5-air","choices":[{"index":0,"delta":{"content":"1"},"finish_reason":null}]}
+
+data: {"id":"chatcmpl-123","object":"chat.completion.chunk","created":1699000000,"model":"glm-4.5-air","choices":[{"index":0,"delta":{"content":", "},"finish_reason":null}]}
+
+data: {"id":"chatcmpl-123","object":"chat.completion.chunk","created":1699000000,"model":"glm-4.5-air","choices":[{"index":0,"delta":{"content":"2"},"finish_reason":null}]}
+
+data: [DONE]
+```
+
+**SSE Format:**
+- Content-Type: `text/event-stream`
+- Each chunk prefixed with `data: `
+- Stream ends with `data: [DONE]`
+- Chunks have `delta` field (not `message`)
+
+**Use Cases:**
+- ✅ **Streaming**: Interactive web UIs, typing indicators, real-time feedback
+- ✅ **Non-streaming**: IRC bots, batch jobs, simple integrations (default)
 
 ---
 
