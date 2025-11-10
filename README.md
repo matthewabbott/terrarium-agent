@@ -83,6 +83,13 @@ python main.py
 - [AGENT_API.md](AGENT_API.md) - HTTP API specification
 - [DOCKER_SETUP.md](DOCKER_SETUP.md) - Docker setup and troubleshooting
 
+## Systemd Service
+
+1. Copy `systemd/terrarium-agent.service` to `terrarium-agent.service.local` (kept out of git) and update `User`, `Group`, `WorkingDirectory`, and `ExecStart` to match your host.
+2. Install it with `sudo cp terrarium-agent.service.local /etc/systemd/system/terrarium-agent.service` and reload with `sudo systemctl daemon-reload`.
+3. Enable/start via `sudo systemctl enable --now terrarium-agent` and tail logs using `sudo journalctl -u terrarium-agent -f`.
+4. Set secrets or overrides in `/etc/terrarium-agent.env` (optional) and restart the service whenever the environment changes.
+
 ## Configuration
 
 See `config/` directory for:

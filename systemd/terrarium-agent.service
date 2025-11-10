@@ -1,0 +1,20 @@
+# Copy this template to /etc/systemd/system/terrarium-agent.service
+# Replace the placeholders below with values for your host before running systemctl.
+[Unit]
+Description=Terrarium Agent HTTP API Service
+After=network.target docker.service
+
+[Service]
+Type=simple
+User=<replace_with_system_user>
+Group=<replace_with_system_group>
+WorkingDirectory=/path/to/terrarium-agent
+Environment="PYTHONUNBUFFERED=1"
+# Optional file for secrets like API keys or alternate ports
+EnvironmentFile=-/etc/terrarium-agent.env
+ExecStart=/path/to/terrarium-agent/venv/bin/python server.py
+Restart=on-failure
+RestartSec=5s
+
+[Install]
+WantedBy=multi-user.target

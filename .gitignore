@@ -61,3 +61,7 @@ sessions_test/
 
 # Tests (only in root, not tests/ directory)
 /test_*.py
+
+# Local systemd overrides
+terrarium-agent.service.local
+systemd/terrarium-agent.service.local
