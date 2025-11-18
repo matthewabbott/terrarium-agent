@@ -14,6 +14,7 @@ Architecture:
 
 import asyncio
 import logging
+import os
 import time
 from contextlib import asynccontextmanager
 from typing import List, Dict, Optional, Any
@@ -546,8 +547,8 @@ API documentation available at http://localhost:8080/docs
     )
     parser.add_argument(
         "--vllm-url",
-        default="http://localhost:8000",
-        help="vLLM server URL (default: http://localhost:8000)"
+        default=os.getenv("VLLM_URL", "http://localhost:8000"),
+        help="vLLM server URL (default: http://localhost:8000 or VLLM_URL env)"
     )
     parser.add_argument(
         "--reload",

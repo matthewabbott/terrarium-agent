@@ -170,24 +170,29 @@ docker inspect vllm-server
 
 ### start_vllm_docker.sh Parameters
 
-Edit the script to customize:
+Override defaults without editing the script using environment variables or CLI flags:
 
 ```bash
-# Port (default: 8000)
-PORT=8000
+# Example: run vLLM on port 9000
+export VLLM_PORT=9000
+./start_vllm_docker.sh --gpu-mem 0.85
 
-# Model path (default: ./models/GLM-4.5-Air-AWQ-4bit)
-MODEL_PATH="./models/GLM-4.5-Air-AWQ-4bit"
-
-# Tensor parallelism (default: 1 for single GPU)
-TENSOR_PARALLEL_SIZE=1
-
-# Max context length (default: 8192)
-MAX_MODEL_LEN=8192
-
-# GPU memory utilization (default: 0.9 = 90%)
-GPU_MEMORY_UTIL=0.9
+# Equivalent CLI-only override
+./start_vllm_docker.sh --port 9000 --gpu-mem 0.85
 ```
+
+Available knobs:
+
+- `--port` / `VLLM_PORT` (default: 8000)
+- `--host` / `VLLM_HOST` (default: 0.0.0.0)
+- `--model-path` / `VLLM_MODEL_PATH` (default: ./models/GLM-4.5-Air-AWQ-4bit)
+- `--tensor-parallel` / `VLLM_TP_SIZE` (default: 1)
+- `--max-model-len` / `VLLM_MAX_MODEL_LEN` (default: 8192)
+- `--gpu-mem` / `VLLM_GPU_MEMORY_UTIL` (default: 0.9)
+- `--container-name` / `VLLM_CONTAINER_NAME` (default: vllm-server)
+- `--image` / `VLLM_IMAGE` (default: nvcr.io/nvidia/vllm:25.09-py3)
+
+💡 Keep `VLLM_PORT` aligned with the Terrarium server by exporting `VLLM_URL=http://localhost:$VLLM_PORT` before running `python server.py` or by placing that value in `/etc/terrarium-agent.env` for the systemd service.
 
 ### Docker Run Flags
 
@@ -198,7 +203,7 @@ The script uses these important flags:
 --ipc=host                  # Shared memory (NVIDIA recommendation)
 --ulimit memlock=-1         # Unlimited locked memory
 --ulimit stack=67108864     # 64MB stack size
--p 8000:8000                # Port mapping
+-p $PORT:$PORT              # Port mapping (default 8000)
 -v $(pwd)/models:/models    # Mount model directory
 ```
 

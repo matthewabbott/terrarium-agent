@@ -4,18 +4,94 @@
 
 set -e
 
-# Configuration
-MODEL_PATH="./models/GLM-4.5-Air-AWQ-4bit"
-PORT=8000
-HOST="0.0.0.0"
-CONTAINER_NAME="vllm-server"
-IMAGE="nvcr.io/nvidia/vllm:25.09-py3"
+usage() {
+    cat <<EOF
+Usage: ./start_vllm_docker.sh [options]
+
+Options:
+  --port <port>           Host/container port to expose (default: 8000 or VLLM_PORT)
+  --host <host>           Host interface to bind (default: 0.0.0.0 or VLLM_HOST)
+  --model-path <path>     Model directory to mount (default: ./models/GLM-4.5-Air-AWQ-4bit)
+  --tensor-parallel <n>   Tensor parallel size (default: 1)
+  --max-model-len <n>     Maximum model context length (default: 8192)
+  --gpu-mem <fraction>    GPU memory utilization fraction (default: 0.9)
+  --container-name <name> Docker container name (default: vllm-server)
+  --image <image>         Container image (default: nvcr.io/nvidia/vllm:25.09-py3)
+  -h, --help              Show this help message
+
+Environment overrides:
+  VLLM_PORT, VLLM_HOST, VLLM_MODEL_PATH, VLLM_CONTAINER_NAME, VLLM_IMAGE,
+  VLLM_TP_SIZE, VLLM_MAX_MODEL_LEN, VLLM_GPU_MEMORY_UTIL
+
+Tip: Keep VLLM_PORT in sync with Terrarium by exporting
+     VLLM_URL=http://localhost:<port> before starting server.py.
+EOF
+}
+
+# Configuration (with env overrides)
+MODEL_PATH="${VLLM_MODEL_PATH:-./models/GLM-4.5-Air-AWQ-4bit}"
+PORT="${VLLM_PORT:-8000}"
+HOST="${VLLM_HOST:-0.0.0.0}"
+CONTAINER_NAME="${VLLM_CONTAINER_NAME:-vllm-server}"
+IMAGE="${VLLM_IMAGE:-nvcr.io/nvidia/vllm:25.09-py3}"
 
 # vLLM parameters for GLM-4.5-Air-AWQ-4bit
 DTYPE="float16"  # Required for AWQ quantization
-TENSOR_PARALLEL_SIZE=1  # Adjust based on your GPU count (1, 2, 4, or 8)
-MAX_MODEL_LEN=8192
-GPU_MEMORY_UTIL=0.9
+TENSOR_PARALLEL_SIZE="${VLLM_TP_SIZE:-1}"  # Adjust based on your GPU count (1, 2, 4, or 8)
+MAX_MODEL_LEN="${VLLM_MAX_MODEL_LEN:-8192}"
+GPU_MEMORY_UTIL="${VLLM_GPU_MEMORY_UTIL:-0.9}"
+
+# Parse CLI overrides
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --port)
+            PORT="$2"
+            shift 2
+            ;;
+        --host)
+            HOST="$2"
+            shift 2
+            ;;
+        --model-path)
+            MODEL_PATH="$2"
+            shift 2
+            ;;
+        --tensor-parallel)
+            TENSOR_PARALLEL_SIZE="$2"
+            shift 2
+            ;;
+        --max-model-len)
+            MAX_MODEL_LEN="$2"
+            shift 2
+            ;;
+        --gpu-mem)
+            GPU_MEMORY_UTIL="$2"
+            shift 2
+            ;;
+        --container-name)
+            CONTAINER_NAME="$2"
+            shift 2
+            ;;
+        --image)
+            IMAGE="$2"
+            shift 2
+            ;;
+        -h|--help)
+            usage
+            exit 0
+            ;;
+        *)
+            echo "Unknown option: $1"
+            usage
+            exit 1
+            ;;
+    esac
+done
+
+if ! [[ "$PORT" =~ ^[0-9]+$ ]]; then
+    echo "ERROR: Port must be a number (received '$PORT')"
+    exit 1
+fi
 
 echo "========================================"
 echo "Starting vLLM Server (Docker)"

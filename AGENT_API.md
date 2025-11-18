@@ -414,19 +414,21 @@ def call_agent_with_retry(client, messages, max_retries=3):
 
 ```bash
 # Start vLLM (if not already running)
-./start_vllm_docker.sh
+./start_vllm_docker.sh --port 9000  # or export VLLM_PORT=9000 first
+
+# Point Terrarium at the same backend
+export VLLM_URL=http://localhost:${VLLM_PORT:-9000}
 
 # Start agent server
-python server.py
-
-# Server will start on http://localhost:8080
+python server.py  # listens on http://localhost:8080
 ```
 
-**Configuration:** Edit `server.py` or use environment variables:
+**Configuration:** use environment variables instead of editing code:
 ```bash
 export AGENT_PORT=8080
-export VLLM_URL=http://localhost:8000
-python server.py
+export VLLM_PORT=9000
+export VLLM_URL=http://localhost:$VLLM_PORT
+python server.py --port $AGENT_PORT
 ```
 
 ---
