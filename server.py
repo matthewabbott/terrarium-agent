@@ -45,6 +45,8 @@ class ChatMessage(BaseModel):
     """Single message in conversation history."""
     role: str = Field(..., description="Message role: system, user, or assistant")
     content: str = Field(..., description="Message content")
+    tool_call_id: Optional[str] = Field(None, description="Tool call ID for tool responses")
+    name: Optional[str] = Field(None, description="Tool name for tool responses")
 
 
 class ChatCompletionRequest(BaseModel):
@@ -55,6 +57,8 @@ class ChatCompletionRequest(BaseModel):
     max_tokens: Optional[int] = Field(2048, ge=1, description="Maximum tokens to generate")
     stop: Optional[List[str]] = Field(None, description="Stop sequences")
     stream: bool = Field(False, description="Enable streaming (Server-Sent Events)")
+    tools: Optional[List[Dict[str, Any]]] = Field(None, description="Function/tool definitions")
+    tool_choice: Optional[Any] = Field(None, description="Tool choice (e.g., 'auto' or a specific function)")
 
 
 class GenerateRequest(BaseModel):
@@ -304,7 +308,15 @@ async def chat_completions(request: ChatCompletionRequest):
         )
 
     # Convert to format vLLM expects
-    messages = [{"role": msg.role, "content": msg.content} for msg in request.messages]
+    messages = []
+    for msg in request.messages:
+        entry: Dict[str, Any] = {"role": msg.role, "content": msg.content}
+        # Include tool metadata if present
+        if msg.tool_call_id:
+            entry["tool_call_id"] = msg.tool_call_id
+        if msg.name:
+            entry["name"] = msg.name
+        messages.append(entry)
 
     # Handle streaming response
     if request.stream:
@@ -320,7 +332,9 @@ async def chat_completions(request: ChatCompletionRequest):
                 messages=messages,
                 temperature=request.temperature,
                 max_tokens=request.max_tokens,
-                stop=request.stop
+                stop=request.stop,
+                tools=request.tools,
+                tool_choice=request.tool_choice,
             )
             return response
         except Exception as e:
@@ -331,7 +345,15 @@ async def chat_completions(request: ChatCompletionRequest):
             )
 
     # Enqueue and wait for processing
-    response_text = await app_state.request_queue.enqueue(process_request)
+    raw_response = await app_state.request_queue.enqueue(process_request)
+
+    if "choices" not in raw_response or not raw_response["choices"]:
+        raise HTTPException(
+            status_code=500,
+            detail="Invalid response from model"
+        )
+    choice = raw_response["choices"][0]
+    message = choice.get("message", {})
 
     # Format as OpenAI-compatible response
     return ChatCompletionResponse(
@@ -342,11 +364,8 @@ async def chat_completions(request: ChatCompletionRequest):
         choices=[
             {
                 "index": 0,
-                "message": {
-                    "role": "assistant",
-                    "content": response_text
-                },
-                "finish_reason": "stop"
+                "message": message,
+                "finish_reason": choice.get("finish_reason", "stop")
             }
         ],
         usage={
@@ -375,7 +394,9 @@ async def stream_chat_completion(messages: List[Dict], request: ChatCompletionRe
             messages=messages,
             temperature=request.temperature,
             max_tokens=request.max_tokens,
-            stop=request.stop
+            stop=request.stop,
+            tools=request.tools,
+            tool_choice=request.tool_choice,
         ):
             # Format as SSE: "data: {json}\n\n"
             yield f"data: {json.dumps(chunk)}\n\n"
@@ -427,7 +448,13 @@ async def generate(request: GenerateRequest):
             )
 
     # Enqueue and wait for processing
-    response_text = await app_state.request_queue.enqueue(process_request)
+    raw_response = await app_state.request_queue.enqueue(process_request)
+    if "choices" not in raw_response or not raw_response["choices"]:
+        raise HTTPException(
+            status_code=500,
+            detail="Invalid response from model"
+        )
+    response_text = raw_response["choices"][0].get("message", {}).get("content", "")
 
     return GenerateResponse(
         response=response_text,

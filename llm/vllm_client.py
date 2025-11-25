@@ -119,8 +119,10 @@ class VLLMClient:
         messages: List[Dict[str, str]],
         temperature: Optional[float] = None,
         max_tokens: Optional[int] = None,
-        stop: Optional[List[str]] = None
-    ) -> str:
+        stop: Optional[List[str]] = None,
+        tools: Optional[List[Dict[str, Any]]] = None,
+        tool_choice: Optional[Any] = None,
+    ) -> Dict[str, Any]:
         """
         Generate response with full conversation history.
 
@@ -150,6 +152,10 @@ class VLLMClient:
 
         if stop:
             payload["stop"] = stop
+        if tools:
+            payload["tools"] = tools
+        if tool_choice is not None:
+            payload["tool_choice"] = tool_choice
 
         # Call vLLM API (OpenAI-compatible endpoint)
         url = f"{self.base_url}/v1/chat/completions"
@@ -161,18 +167,17 @@ class VLLMClient:
 
             data = await response.json()
 
-            # Extract generated text
-            if "choices" not in data or len(data["choices"]) == 0:
-                raise Exception(f"No response from vLLM: {data}")
-
-            return data["choices"][0]["message"]["content"]
+            # Return full response dict so caller can access tool_calls/content/etc.
+            return data
 
     async def chat_stream(
         self,
         messages: List[Dict[str, str]],
         temperature: Optional[float] = None,
         max_tokens: Optional[int] = None,
-        stop: Optional[List[str]] = None
+        stop: Optional[List[str]] = None,
+        tools: Optional[List[Dict[str, Any]]] = None,
+        tool_choice: Optional[Any] = None,
     ):
         """
         Generate streaming response with full conversation history.
@@ -205,6 +210,10 @@ class VLLMClient:
 
         if stop:
             payload["stop"] = stop
+        if tools:
+            payload["tools"] = tools
+        if tool_choice is not None:
+            payload["tool_choice"] = tool_choice
 
         url = f"{self.base_url}/v1/chat/completions"
 

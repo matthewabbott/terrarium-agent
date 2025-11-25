@@ -156,13 +156,19 @@ class MultiContextManager:
         # Generate response using vLLM
         response = await self.vllm_client.chat(messages=messages, **kwargs)
 
+        # Extract assistant message text if full response dict is returned
+        if isinstance(response, dict) and "choices" in response and response["choices"]:
+            content = response["choices"][0].get("message", {}).get("content", "")
+        else:
+            content = response
+
         # Add assistant response
-        session.add_message("assistant", response)
+        session.add_message("assistant", content)
 
         # Mark as active
         self._active_context_id = context_id
 
-        return response
+        return content
 
     def get_active_context_id(self) -> Optional[str]:
         """Get currently active context ID."""
