@@ -175,6 +175,61 @@ class RequestQueue:
 # Application State
 # ============================================================================
 
+def _env_int(name: str, default: int) -> int:
+    try:
+        return int(os.environ.get(name, default))
+    except Exception:
+        return default
+
+
+def _env_float(name: str, default: float) -> float:
+    try:
+        return float(os.environ.get(name, default))
+    except Exception:
+        return default
+
+
+class Metrics:
+    """Lightweight counters for observability."""
+
+    def __init__(self) -> None:
+        self.http_requests = 0
+        self.http_errors = 0
+        self.http_latency_ms = 0.0
+        self.stream_requests = 0
+        self.stream_errors = 0
+        self.stream_open = 0
+        self.stream_latency_ms = 0.0
+
+    def record_http(self, latency_ms: float, errored: bool) -> None:
+        self.http_requests += 1
+        self.http_latency_ms = latency_ms
+        if errored:
+            self.http_errors += 1
+
+    def record_stream_start(self) -> None:
+        self.stream_requests += 1
+        self.stream_open += 1
+
+    def record_stream_end(self, latency_ms: Optional[float] = None, errored: bool = False) -> None:
+        self.stream_open = max(0, self.stream_open - 1)
+        if latency_ms is not None:
+            self.stream_latency_ms = latency_ms
+        if errored:
+            self.stream_errors += 1
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "http_requests": self.http_requests,
+            "http_errors": self.http_errors,
+            "http_last_latency_ms": round(self.http_latency_ms, 2),
+            "stream_requests": self.stream_requests,
+            "stream_errors": self.stream_errors,
+            "stream_open": self.stream_open,
+            "stream_last_latency_ms": round(self.stream_latency_ms, 2),
+        }
+
+
 class AppState:
     """Global application state."""
 
@@ -184,6 +239,11 @@ class AppState:
         self.vllm_url: str = "http://localhost:8000"
         self.model: Optional[str] = None
         self.startup_time: int = int(time.time())
+        self.stream_semaphore: asyncio.Semaphore = asyncio.Semaphore(
+            _env_int("AGENT_MAX_CONCURRENT_STREAMS", 4)
+        )
+        self.request_timeout_seconds: float = _env_float("AGENT_REQUEST_TIMEOUT_SECONDS", 120.0)
+        self.metrics = Metrics()
 
     async def initialize(self):
         """Initialize vLLM client and verify connection."""
@@ -327,22 +387,31 @@ async def chat_completions(request: ChatCompletionRequest):
 
     # Handle non-streaming response
     async def process_request():
+        start = time.perf_counter()
+        errored = False
         try:
-            response = await app_state.vllm_client.chat(
-                messages=messages,
-                temperature=request.temperature,
-                max_tokens=request.max_tokens,
-                stop=request.stop,
-                tools=request.tools,
-                tool_choice=request.tool_choice,
+            response = await asyncio.wait_for(
+                app_state.vllm_client.chat(
+                    messages=messages,
+                    temperature=request.temperature,
+                    max_tokens=request.max_tokens,
+                    stop=request.stop,
+                    tools=request.tools,
+                    tool_choice=request.tool_choice,
+                ),
+                timeout=app_state.request_timeout_seconds,
             )
             return response
         except Exception as e:
+            errored = True
             logger.error(f"Chat completion error: {e}")
             raise HTTPException(
                 status_code=500,
                 detail=f"Failed to generate response: {str(e)}"
             )
+        finally:
+            latency_ms = (time.perf_counter() - start) * 1000
+            app_state.metrics.record_http(latency_ms, errored)
 
     # Enqueue and wait for processing
     raw_response = await app_state.request_queue.enqueue(process_request)
@@ -388,26 +457,31 @@ async def stream_chat_completion(messages: List[Dict], request: ChatCompletionRe
 
     This is an async generator that yields SSE-formatted chunks.
     """
+    start = time.perf_counter()
+    errored = False
     try:
-        # Stream from vLLM (no queue wait)
-        async for chunk in app_state.vllm_client.chat_stream(
-            messages=messages,
-            temperature=request.temperature,
-            max_tokens=request.max_tokens,
-            stop=request.stop,
-            tools=request.tools,
-            tool_choice=request.tool_choice,
-        ):
-            # Format as SSE: "data: {json}\n\n"
-            yield f"data: {json.dumps(chunk)}\n\n"
-            # Allow event loop to process
-            await asyncio.sleep(0)
+        async with app_state.stream_semaphore:
+            app_state.metrics.record_stream_start()
+            # Stream from vLLM (no queue wait)
+            async for chunk in app_state.vllm_client.chat_stream(
+                messages=messages,
+                temperature=request.temperature,
+                max_tokens=request.max_tokens,
+                stop=request.stop,
+                tools=request.tools,
+                tool_choice=request.tool_choice,
+            ):
+                # Format as SSE: "data: {json}\n\n"
+                yield f"data: {json.dumps(chunk)}\n\n"
+                # Allow event loop to process
+                await asyncio.sleep(0)
 
-        # Send completion signal
-        yield "data: [DONE]\n\n"
+            # Send completion signal
+            yield "data: [DONE]\n\n"
 
     except Exception as e:
         logger.error(f"Streaming error: {e}")
+        errored = True
         # Send error as SSE event
         error_chunk = {
             "error": {
@@ -416,6 +490,9 @@ async def stream_chat_completion(messages: List[Dict], request: ChatCompletionRe
             }
         }
         yield f"data: {json.dumps(error_chunk)}\n\n"
+    finally:
+        latency_ms = (time.perf_counter() - start) * 1000
+        app_state.metrics.record_stream_end(latency_ms, errored)
 
 
 @app.post("/v1/generate", response_model=GenerateResponse)
@@ -484,6 +561,19 @@ async def health_check():
         model=app_state.model,
         queue_length=app_state.request_queue.get_length()
     )
+
+
+@app.get("/metrics")
+async def metrics():
+    """
+    Lightweight JSON metrics for observability.
+    """
+    if not app_state.vllm_client:
+        raise HTTPException(status_code=503, detail="Server not ready")
+    payload = app_state.metrics.to_dict()
+    payload["queue_length"] = app_state.request_queue.get_length()
+    payload["model"] = app_state.model
+    return payload
 
 
 @app.get("/v1/models", response_model=ModelsResponse)
