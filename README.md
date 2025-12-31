@@ -16,6 +16,11 @@ A flexible agent runtime with sandboxed execution, vLLM integration, and extensi
 - **Session Management**: Persistent conversation storage with multi-context support
 - **Harness System**: Structured game/task environments (chess, CTF, coding challenges)
 
+### Runtime Behavior Notes
+
+- **Tool calling**: Agent runtime now follows the OpenAI tool/function call spec. Assistant messages include `tool_calls`, tool results are fed back as `role: "tool"` with `tool_call_id`, and the loop continues until no more tool calls or max iterations.
+- **Prompt sizing**: A lightweight estimator trims oldest turns before sending to vLLM, keeping headroom for completions (default prompt budget ~6k tokens, completion cap ~2k). vLLM still enforces the true `--max-model-len`.
+
 ## Project Structure
 
 ```

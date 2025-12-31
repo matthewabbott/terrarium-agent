@@ -1,6 +1,7 @@
 """Core agent runtime for executing tasks with tools and LLM."""
 
 from typing import Dict, List, Optional, Any
+import json
 import asyncio
 from pathlib import Path
 
@@ -223,46 +224,61 @@ class AgentRuntime:
         # Convert tools to OpenAI function format
         tool_definitions = self._tools_to_openai_format(available_tools)
 
-        # Tool calling loop
-        current_prompt = prompt
-        for iteration in range(max_iterations):
-            # Call LLM with tools
-            result = await self.llm.generate_with_tools(
-                prompt=current_prompt,
+        # Build initial messages (system + user)
+        messages: List[Dict[str, Any]] = []
+        if system_prompt:
+            messages.append({"role": "system", "content": system_prompt})
+        messages.append({"role": "user", "content": prompt})
+
+        for _ in range(max_iterations):
+            response = await self.llm.chat(
+                messages=messages,
                 tools=tool_definitions,
-                system_prompt=system_prompt
+                tool_choice="auto",
             )
 
-            # Check if LLM wants to call tools
-            if not result.get("tool_calls"):
-                # No more tool calls, return final response
-                return result["text"]
+            if not isinstance(response, dict):
+                return str(response)
 
-            # Execute tool calls
-            tool_results = []
-            for tool_call in result["tool_calls"]:
-                tool_name = tool_call["function"]["name"]
-                arguments = tool_call["function"]["arguments"]
+            if "choices" not in response or not response["choices"]:
+                return "Error: model returned empty response."
 
-                # Execute tool
+            message = response["choices"][0].get("message", {})
+            messages.append(message)
+
+            tool_calls = message.get("tool_calls") or []
+            if not tool_calls:
+                # Final content
+                return message.get("content", "")
+
+            # Execute tool calls and append tool results as messages
+            for call in tool_calls:
+                func = call.get("function", {}) if isinstance(call, dict) else {}
+                tool_name = func.get("name")
+                raw_args = func.get("arguments", {}) or {}
+
+                if isinstance(raw_args, str):
+                    try:
+                        arguments = json.loads(raw_args)
+                    except json.JSONDecodeError:
+                        arguments = {}
+                else:
+                    arguments = raw_args
+
                 tool_result = await self.execute_tool(
                     tool_name=tool_name,
                     **arguments
                 )
 
-                tool_results.append({
-                    "tool": tool_name,
-                    "result": tool_result
-                })
+                content = tool_result.output if tool_result.output is not None else tool_result.error
+                tool_message = {
+                    "role": "tool",
+                    "tool_call_id": call.get("id") or "",
+                    "name": tool_name,
+                    "content": content or "",
+                }
+                messages.append(tool_message)
 
-            # Prepare next prompt with tool results
-            results_text = "\n".join([
-                f"Tool {r['tool']}: {r['result'].output}"
-                for r in tool_results
-            ])
-            current_prompt = f"{prompt}\n\nTool results:\n{results_text}\n\nContinue:"
-
-        # Max iterations reached
         return "Maximum tool calling iterations reached. Task may be incomplete."
 
     def _tools_to_openai_format(self, tools: List[BaseTool]) -> List[Dict[str, Any]]:

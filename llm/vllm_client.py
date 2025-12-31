@@ -18,6 +18,7 @@ class VLLMClient:
         model: str = "glm-air-4.5",
         temperature: float = 0.7,
         max_tokens: int = 2048,
+        max_context_tokens: int = 6000,
         timeout: int = 120
     ):
         """
@@ -28,14 +29,70 @@ class VLLMClient:
             model: Model name (as configured in vLLM)
             temperature: Sampling temperature (0.0-2.0)
             max_tokens: Maximum tokens to generate
+            max_context_tokens: Rough cap for prompt tokens before sending to vLLM
             timeout: Request timeout in seconds
         """
         self.base_url = base_url.rstrip('/')
         self.model = model
         self.temperature = temperature
         self.max_tokens = max_tokens
+        self.max_context_tokens = max_context_tokens
         self.timeout = timeout
         self.session: Optional[aiohttp.ClientSession] = None
+
+    # ------------------------------------------------------------
+    # Helpers
+    # ------------------------------------------------------------
+
+    def _estimate_tokens(self, text: str) -> int:
+        """
+        Cheap token estimator (~4 chars per token).
+
+        vLLM enforces the real limit; this just prevents obvious overflow.
+        """
+        return max(1, int(len(text) / 4))
+
+    def _truncate_messages(
+        self,
+        messages: List[Dict[str, Any]],
+        max_context_tokens: Optional[int] = None,
+        completion_tokens: Optional[int] = None,
+    ) -> List[Dict[str, Any]]:
+        """
+        Roughly truncate messages to keep prompt under a target token budget.
+
+        Keeps system message and trims from the oldest user/assistant/tool turns.
+        """
+        budget = max_context_tokens or self.max_context_tokens
+        reserve = completion_tokens or self.max_tokens
+        if budget is None:
+            return messages
+
+        # Copy to avoid mutating caller data
+        pruned = []
+        total = 0
+        # Always keep the first system message if present
+        idx = 0
+        if messages and messages[0].get("role") == "system":
+            pruned.append(messages[0])
+            total += self._estimate_tokens(messages[0].get("content", ""))
+            idx = 1
+
+        # Walk from the end (newest first) and prepend until budget is hit
+        for msg in reversed(messages[idx:]):
+            msg_tokens = self._estimate_tokens(msg.get("content", ""))
+            # include tool call arguments text if present
+            if "tool_calls" in msg:
+                for call in msg["tool_calls"] or []:
+                    if isinstance(call, dict):
+                        args = call.get("function", {}).get("arguments", "")
+                        msg_tokens += self._estimate_tokens(str(args))
+            if total + msg_tokens + reserve > budget:
+                break
+            pruned.insert(1 if idx == 1 else 0, msg)  # keep order
+            total += msg_tokens
+
+        return pruned
 
     async def initialize(self):
         """Initialize HTTP session with improved timeout configuration."""
@@ -87,12 +144,18 @@ class VLLMClient:
             messages.append({"role": "system", "content": system_prompt})
         messages.append({"role": "user", "content": prompt})
 
+        completion_tokens = max_tokens if max_tokens is not None else self.max_tokens
+        messages = self._truncate_messages(
+            messages,
+            completion_tokens=completion_tokens,
+        )
+
         # Prepare request
         payload = {
             "model": self.model,
             "messages": messages,
             "temperature": temperature if temperature is not None else self.temperature,
-            "max_tokens": max_tokens if max_tokens is not None else self.max_tokens,
+            "max_tokens": completion_tokens,
         }
 
         if stop:
@@ -142,12 +205,18 @@ class VLLMClient:
         if not self.session:
             await self.initialize()
 
+        completion_tokens = max_tokens if max_tokens is not None else self.max_tokens
+        messages = self._truncate_messages(
+            messages,
+            completion_tokens=completion_tokens,
+        )
+
         # Prepare request
         payload = {
             "model": self.model,
             "messages": messages,
             "temperature": temperature if temperature is not None else self.temperature,
-            "max_tokens": max_tokens if max_tokens is not None else self.max_tokens,
+            "max_tokens": completion_tokens,
         }
 
         if stop:
@@ -199,12 +268,18 @@ class VLLMClient:
         if not self.session:
             await self.initialize()
 
+        completion_tokens = max_tokens if max_tokens is not None else self.max_tokens
+        messages = self._truncate_messages(
+            messages,
+            completion_tokens=completion_tokens,
+        )
+
         # Prepare request with streaming enabled
         payload = {
             "model": self.model,
             "messages": messages,
             "temperature": temperature if temperature is not None else self.temperature,
-            "max_tokens": max_tokens if max_tokens is not None else self.max_tokens,
+            "max_tokens": completion_tokens,
             "stream": True  # Enable streaming
         }
 
@@ -269,6 +344,12 @@ class VLLMClient:
         if system_prompt:
             messages.append({"role": "system", "content": system_prompt})
         messages.append({"role": "user", "content": prompt})
+
+        completion_tokens = self.max_tokens
+        messages = self._truncate_messages(
+            messages,
+            completion_tokens=completion_tokens,
+        )
 
         # Prepare request with tools
         payload = {
