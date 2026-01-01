@@ -10,7 +10,7 @@ A flexible agent runtime with sandboxed execution, vLLM integration, and extensi
 
 - **HTTP API Server**: OpenAI-compatible REST API for external integration (port 8080)
 - **Agent Runtime**: Core loop with context management and tool orchestration
-- **vLLM Integration**: GLM-4.5-Air-AWQ-4bit via vLLM Docker container (port 8000)
+- **vLLM Integration**: GLM-4.5-Air-AWQ-4bit and Qwen3-Next-80B-A3B-Instruct-AWQ-4bit via vLLM Docker containers (port 8000)
 - **Tool System**: Pluggable tools with clean interfaces
 - **Context Swapping**: Different personas/contexts per domain (IRC ambassador, coder, etc.)
 - **Session Management**: Persistent conversation storage with multi-context support
@@ -53,7 +53,9 @@ Read/write files with access controls.
 
 - **Docker** + **nvidia-container-toolkit** (for vLLM)
 - **NVIDIA GPU:** GB10 (Blackwell) or compatible with driver 580+
-- **Model:** GLM-4.5-Air-AWQ-4bit downloaded to `models/` directory
+- **Models:** Place downloaded models under `models/`
+  - GLM-4.5-Air-AWQ-4bit
+  - (optional) Qwen3-Next-80B-A3B-Instruct-AWQ-4bit
 
 ### Quick Start
 
@@ -64,8 +66,15 @@ Read/write files with access controls.
 # 2. Install Python client dependencies
 pip install -r requirements.txt
 
-# 3. Start vLLM server in Docker (separate terminal)
-./start_vllm_docker.sh
+# 3a. Start GLM (8k context, tool+reasoning parsers)
+./start_vllm_docker.sh --num-agents 1 --max-model-len 8192
+# (override --gpu-mem if you want a larger/smaller KV pool)
+
+# 3b. Start Qwen3 (long-context)
+./start_vllm_docker_qwen3.sh --num-agents 1 --max-model-len 32768 --enforce-eager
+# Defaults: dtype bf16, tool parser qwen3_coder, reasoning parser qwen3.
+# Increase --max-model-len or --num-agents if you need more parallel contexts;
+# reduce --gpu-mem to lower VRAM.
 
 # 4. Choose how to run the agent:
 
@@ -81,6 +90,10 @@ python chat.py
 source venv/bin/activate
 python main.py
 ```
+
+**vLLM scripts and sizing:**
+- `start_vllm_docker.sh` (GLM) and `start_vllm_docker_qwen3.sh` (Qwen3) accept `--max-model-len` and `--num-agents`; if you omit `--gpu-mem`, the scripts auto-size the KV pool based on those. Lower `--gpu-mem` to reduce VRAM; higher `--max-model-len` trades concurrency for longer prompts.
+- Qwen3 defaults: bf16, tool parser `qwen3_coder`, reasoning parser `qwen3`, `--enforce-eager` on to avoid torch.compile issues in this image.
 
 **Documentation:**
 - [QUICKSTART.md](QUICKSTART.md) - Detailed setup instructions
