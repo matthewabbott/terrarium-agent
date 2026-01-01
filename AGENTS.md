@@ -31,3 +31,4 @@
 - Never commit secrets; reference environment variables loaded by `config/agent.yaml`.
 - Validate file and tool permissions—new tools must respect sandbox constraints and avoid arbitrary filesystem writes outside the workspace.
 - Verify vLLM Docker settings via `start_vllm_docker.sh` before deploying agent changes that rely on GPU inference.
+- When serving Qwen3 locally for tool calls, use `start_vllm_docker_qwen3.sh` (defaults to `--tool-call-parser hermes`). No separate reasoning parser is needed; thinking is instruction-driven.

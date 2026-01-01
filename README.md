@@ -72,7 +72,7 @@ pip install -r requirements.txt
 
 # 3b. Start Qwen3 (long-context)
 ./start_vllm_docker_qwen3.sh --num-agents 1 --max-model-len 32768 --enforce-eager
-# Defaults: dtype bf16, tool parser qwen3_coder, reasoning parser qwen3.
+# Defaults: dtype bf16, tool parser hermes (reasoning parser unset).
 # Increase --max-model-len or --num-agents if you need more parallel contexts;
 # reduce --gpu-mem to lower VRAM.
 
@@ -93,7 +93,7 @@ python main.py
 
 **vLLM scripts and sizing:**
 - `start_vllm_docker.sh` (GLM) and `start_vllm_docker_qwen3.sh` (Qwen3) accept `--max-model-len` and `--num-agents`; if you omit `--gpu-mem`, the scripts auto-size the KV pool based on those. Lower `--gpu-mem` to reduce VRAM; higher `--max-model-len` trades concurrency for longer prompts.
-- Qwen3 defaults: bf16, tool parser `qwen3_coder`, reasoning parser `qwen3`, `--enforce-eager` on to avoid torch.compile issues in this image.
+- Qwen3 defaults: bf16, tool parser `hermes`, `--enforce-eager` on to avoid torch.compile issues in this image.
 
 **Documentation:**
 - [QUICKSTART.md](QUICKSTART.md) - Detailed setup instructions

@@ -48,8 +48,8 @@ TENSOR_PARALLEL_SIZE="${VLLM_TP_SIZE:-1}"  # Adjust based on your GPU count
 MAX_MODEL_LEN="${VLLM_MAX_MODEL_LEN:-32768}"
 GPU_MEMORY_UTIL="${VLLM_GPU_MEMORY_UTIL:-}"
 NUM_AGENTS="${VLLM_NUM_AGENTS:-1}"
-TOOL_PARSER="${VLLM_TOOL_PARSER:-qwen3_coder}"
-REASONING_PARSER="${VLLM_REASONING_PARSER:-qwen3}"
+TOOL_PARSER="${VLLM_TOOL_PARSER:-hermes}"
+REASONING_PARSER="${VLLM_REASONING_PARSER:-}"
 TRUST_REMOTE_CODE="${VLLM_TRUST_REMOTE_CODE:-false}"
 ENFORCE_EAGER="${VLLM_ENFORCE_EAGER:-true}"
 
@@ -216,7 +216,7 @@ echo "Check logs with: docker logs -f $CONTAINER_NAME"
 echo
 
 # Start vLLM server in Docker
-# Note: Qwen supports tool calling via 'qwen' parser; no built-in reasoning parser flag.
+# Note: Qwen supports tool calling via 'hermes'/'qwen' parsers; no built-in reasoning parser flag.
 #       Long context >262k requires rope scaling; enable via --rope-scaling as needed.
 docker run -d \
     --name "$CONTAINER_NAME" \
