@@ -254,7 +254,13 @@ class AgentRuntime:
             # Execute tool calls and append tool results as messages
             for call in tool_calls:
                 func = call.get("function", {}) if isinstance(call, dict) else {}
-                tool_name = func.get("name")
+                func_name = func.get("name") or ""
+                # Split function name into tool + action (we emit f"{tool}_{action}")
+                if "_" in func_name:
+                    tool_name, action = func_name.split("_", 1)
+                else:
+                    tool_name, action = func_name, ""
+
                 raw_args = func.get("arguments", {}) or {}
 
                 if isinstance(raw_args, str):
@@ -267,6 +273,7 @@ class AgentRuntime:
 
                 tool_result = await self.execute_tool(
                     tool_name=tool_name,
+                    action=action,
                     **arguments
                 )
 
@@ -274,7 +281,7 @@ class AgentRuntime:
                 tool_message = {
                     "role": "tool",
                     "tool_call_id": call.get("id") or "",
-                    "name": tool_name,
+                    "name": func_name,
                     "content": content or "",
                 }
                 messages.append(tool_message)

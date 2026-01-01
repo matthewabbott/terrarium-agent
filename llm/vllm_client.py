@@ -50,7 +50,9 @@ class VLLMClient:
 
         vLLM enforces the real limit; this just prevents obvious overflow.
         """
-        return max(1, int(len(text) / 4))
+        if text is None:
+            text = ""
+        return max(1, int(len(str(text)) / 4))
 
     def _truncate_messages(
         self,
