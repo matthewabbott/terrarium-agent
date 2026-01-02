@@ -107,6 +107,18 @@ class ModelsResponse(BaseModel):
     data: List[ModelInfo]
 
 
+class TokenizeRequest(BaseModel):
+    """Request for tokenize endpoint."""
+    prompt: str = Field(..., description="Text to tokenize")
+
+
+class TokenizeResponse(BaseModel):
+    """Response for tokenize endpoint."""
+    tokens: List[int] = Field(..., description="Token IDs")
+    count: int = Field(..., description="Number of tokens")
+
+
+
 # ============================================================================
 # Request Queue (FIFO)
 # ============================================================================
@@ -561,6 +573,24 @@ async def health_check():
         model=app_state.model,
         queue_length=app_state.request_queue.get_length()
     )
+
+
+@app.post("/tokenize", response_model=TokenizeResponse)
+async def tokenize(request: TokenizeRequest):
+    """
+    Tokenize text using vLLM's tokenizer.
+
+    Returns token IDs and count for the input text.
+    """
+    if not app_state.vllm_client:
+        raise HTTPException(status_code=503, detail="Server not ready")
+
+    try:
+        tokens = await app_state.vllm_client.tokenize(request.prompt)
+        return TokenizeResponse(tokens=tokens, count=len(tokens))
+    except Exception as e:
+        logger.error(f"Tokenize error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.get("/metrics")

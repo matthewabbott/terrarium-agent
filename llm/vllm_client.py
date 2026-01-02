@@ -402,6 +402,30 @@ class VLLMClient:
             print(f"Health check failed: {e}")
             return False
 
+    async def tokenize(self, text: str) -> List[int]:
+        """
+        Tokenize text using vLLM's tokenizer.
+
+        Args:
+            text: Text to tokenize
+
+        Returns:
+            List of token IDs
+        """
+        if not self.session:
+            await self.initialize()
+
+        url = f"{self.base_url}/tokenize"
+        payload = {"prompt": text}
+
+        async with self.session.post(url, json=payload) as response:
+            if response.status != 200:
+                error_text = await response.text()
+                raise Exception(f"Tokenize error ({response.status}): {error_text}")
+
+            data = await response.json()
+            return data.get("tokens", [])
+
     async def get_models(self) -> List[str]:
         """
         Get list of available models.
