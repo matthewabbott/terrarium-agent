@@ -608,21 +608,25 @@ async def metrics():
     payload["model"] = app_state.model
 
     # Fetch vLLM metrics (Prometheus format)
+    # Note: vLLM metric names may use colons or underscores depending on version
+    # e.g., "vllm:gpu_cache_usage_perc" or "vllm_gpu_cache_usage_perc"
     try:
         async with httpx.AsyncClient() as client:
             resp = await client.get(f"{app_state.vllm_url}/metrics", timeout=2.0)
             if resp.status_code == 200:
                 # Parse Prometheus format for key metrics
-                for line in resp.text.splitlines():
-                    if line.startswith("#"):
+                for raw_line in resp.text.splitlines():
+                    line = raw_line.strip()
+                    if not line or line.startswith("#"):
                         continue
-                    if line.startswith("vllm:gpu_cache_usage_perc"):
-                        payload["vllm_gpu_cache_pct"] = float(line.split()[-1])
-                    elif line.startswith("vllm:cpu_cache_usage_perc"):
-                        payload["vllm_cpu_cache_pct"] = float(line.split()[-1])
-                    elif line.startswith("vllm:num_requests_running"):
+                    # Normalize: check for both colon and underscore variants
+                    # Format: metric_name{labels} value  OR  metric_name value
+                    # Note: vLLM uses "kv_cache_usage_perc" (not gpu/cpu split)
+                    if "kv_cache_usage_perc" in line:
+                        payload["vllm_kv_cache_pct"] = float(line.split()[-1])
+                    elif "num_requests_running" in line:
                         payload["vllm_requests_running"] = int(float(line.split()[-1]))
-                    elif line.startswith("vllm:num_requests_waiting"):
+                    elif "num_requests_waiting" in line:
                         payload["vllm_requests_waiting"] = int(float(line.split()[-1]))
     except Exception as e:
         logger.debug(f"Could not fetch vLLM metrics: {e}")

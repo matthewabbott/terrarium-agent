@@ -239,7 +239,8 @@ docker run -d \
     ${REASONING_PARSER:+--reasoning-parser "$REASONING_PARSER"} \
     $( [ "$TRUST_REMOTE_CODE" = "true" ] && echo "--trust-remote-code" ) \
     $( [ "$ENFORCE_EAGER" = "true" ] && echo "--enforce-eager" ) \
-    --enable-auto-tool-choice
+    --enable-auto-tool-choice \
+    --enable-prefix-caching
     # Uncomment to experiment with speculative decoding (multi-token prediction):
     # --speculative-config '{"method":"qwen3_next_mtp","num_speculative_tokens":2}'
     # For long-context rope scaling (example to 1M tokens):

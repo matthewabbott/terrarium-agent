@@ -195,7 +195,8 @@ docker run -d \
     --reasoning-parser glm45 \
     --enable-auto-tool-choice \
     --max-model-len "$MAX_MODEL_LEN" \
-    --gpu-memory-utilization "$GPU_MEMORY_UTIL"
+    --gpu-memory-utilization "$GPU_MEMORY_UTIL" \
+    --enable-prefix-caching
 
 echo
 echo "✓ Container started successfully!"
