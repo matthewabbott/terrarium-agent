@@ -25,6 +25,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 import uvicorn
 import json
+import httpx
 
 from llm.vllm_client import VLLMClient
 
@@ -597,12 +598,36 @@ async def tokenize(request: TokenizeRequest):
 async def metrics():
     """
     Lightweight JSON metrics for observability.
+
+    Includes proxy metrics and vLLM backend metrics (KV cache usage, request counts).
     """
     if not app_state.vllm_client:
         raise HTTPException(status_code=503, detail="Server not ready")
     payload = app_state.metrics.to_dict()
     payload["queue_length"] = app_state.request_queue.get_length()
     payload["model"] = app_state.model
+
+    # Fetch vLLM metrics (Prometheus format)
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.get(f"{app_state.vllm_url}/metrics", timeout=2.0)
+            if resp.status_code == 200:
+                # Parse Prometheus format for key metrics
+                for line in resp.text.splitlines():
+                    if line.startswith("#"):
+                        continue
+                    if line.startswith("vllm:gpu_cache_usage_perc"):
+                        payload["vllm_gpu_cache_pct"] = float(line.split()[-1])
+                    elif line.startswith("vllm:cpu_cache_usage_perc"):
+                        payload["vllm_cpu_cache_pct"] = float(line.split()[-1])
+                    elif line.startswith("vllm:num_requests_running"):
+                        payload["vllm_requests_running"] = int(float(line.split()[-1]))
+                    elif line.startswith("vllm:num_requests_waiting"):
+                        payload["vllm_requests_waiting"] = int(float(line.split()[-1]))
+    except Exception as e:
+        logger.debug(f"Could not fetch vLLM metrics: {e}")
+        # Metrics unavailable - fields simply won't be present
+
     return payload
 
 

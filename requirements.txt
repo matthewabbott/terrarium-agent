@@ -8,6 +8,7 @@ pyyaml>=6.0                # Config file parsing
 
 # Async support
 aiohttp>=3.9.0             # Async HTTP client
+httpx>=0.27.0              # Async HTTP client (for vLLM metrics)
 asyncio-mqtt>=0.16.0       # Async MQTT if needed
 
 # Tool dependencies
